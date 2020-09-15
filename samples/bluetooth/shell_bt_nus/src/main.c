@@ -35,7 +35,7 @@ static const struct bt_data sd[] = {
 	BT_DATA_BYTES(BT_DATA_UUID128_ALL, NUS_UUID_SERVICE),
 };
 
-static void connected(struct bt_conn *conn, u8_t err)
+static void connected(struct bt_conn *conn, uint8_t err)
 {
 	if (err) {
 		LOG_ERR("Connection failed (err %u)", err);
@@ -47,7 +47,7 @@ static void connected(struct bt_conn *conn, u8_t err)
 	shell_bt_nus_enable(conn);
 }
 
-static void disconnected(struct bt_conn *conn, u8_t reason)
+static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	LOG_INF("Disconnected (reason %u)", reason);
 
@@ -123,10 +123,20 @@ static struct bt_conn_auth_cb conn_auth_callbacks = {
 	.pairing_failed = pairing_failed
 };
 
-static void bt_ready(int err)
+void main(void)
 {
+	int err;
+
+	printk("Starting Bluetooth NUS shell transport example\n");
+
+	bt_conn_cb_register(&conn_callbacks);
+	if (IS_ENABLED(CONFIG_BT_SMP)) {
+		bt_conn_auth_cb_register(&conn_auth_callbacks);
+	}
+
+	err = bt_enable(NULL);
 	if (err) {
-		LOG_ERR("BLE init failed (err: %d)", err);
+		LOG_ERR("BLE enable failed (err: %d)", err);
 		return;
 	}
 
@@ -144,22 +154,5 @@ static void bt_ready(int err)
 	}
 
 	LOG_INF("Bluetooth ready. Advertising started.");
+
 }
-
-void main(void)
-{
-	int err;
-
-	err = bt_enable(bt_ready);
-	if (err) {
-		LOG_ERR("BLE enable failed (err: %d)", err);
-		return;
-	}
-
-	bt_conn_cb_register(&conn_callbacks);
-
-	if (IS_ENABLED(CONFIG_BT_SMP)) {
-		bt_conn_auth_cb_register(&conn_auth_callbacks);
-	}
-}
-

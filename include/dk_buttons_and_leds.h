@@ -14,6 +14,7 @@
  */
 
 #include <zephyr/types.h>
+#include <sys/slist.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,7 +50,13 @@ extern "C" {
  * @param button_state Bitmask of button states.
  * @param has_changed Bitmask that shows which buttons have changed.
  */
-typedef void (*button_handler_t)(u32_t button_state, u32_t has_changed);
+typedef void (*button_handler_t)(uint32_t button_state, uint32_t has_changed);
+
+/** Button handler list entry. */
+struct button_handler {
+	button_handler_t cb; /**< Callback function. */
+	sys_snode_t node; /**< Linked list node, for internal use. */
+};
 
 /** @brief Initialize the library to control the LEDs.
  *
@@ -67,18 +74,38 @@ int dk_leds_init(void);
  */
 int dk_buttons_init(button_handler_t button_handler);
 
+/** @brief Add a dynamic button handler callback.
+ *
+ * In addition to the button handler function passed to
+ * @ref dk_buttons_init, any number of button handlers can be added and removed
+ * at runtime.
+ *
+ * @param[in] handler Handler structure. Must point to statically allocated
+ * memory.
+ */
+void dk_button_handler_add(struct button_handler *handler);
+
+/** @brief Remove a dynamic button handler callback.
+ *
+ * @param[in] handler Handler to remove.
+ *
+ * @retval 0 Successfully removed the handler.
+ * @retval -ENOENT This button handler was not present.
+ */
+int dk_button_handler_remove(struct button_handler *handler);
+
 /** @brief Read current button states.
  *
  *  @param button_state Bitmask of button states.
  *  @param has_changed Bitmask that shows which buttons have changed.
  */
-void dk_read_buttons(u32_t *button_state, u32_t *has_changed);
+void dk_read_buttons(uint32_t *button_state, uint32_t *has_changed);
 
 /** @brief Get current button state from internal variable.
  *
  *  @return Bitmask of button states.
  */
-u32_t dk_get_buttons(void);
+uint32_t dk_get_buttons(void);
 
 /** @brief Set value of LED pins as specified in one bitmask.
  *
@@ -87,7 +114,7 @@ u32_t dk_get_buttons(void);
  *  @retval 0           If the operation was successful.
  *                      Otherwise, a (negative) error code is returned.
  */
-int dk_set_leds(u32_t leds);
+int dk_set_leds(uint32_t leds);
 
 
 /** @brief Set value of LED pins as specified in two bitmasks.
@@ -103,7 +130,7 @@ int dk_set_leds(u32_t leds);
  *  @retval 0           If the operation was successful.
  *                      Otherwise, a (negative) error code is returned.
  */
-int dk_set_leds_state(u32_t leds_on_mask, u32_t leds_off_mask);
+int dk_set_leds_state(uint32_t leds_on_mask, uint32_t leds_off_mask);
 
 /** @brief Set a single LED value.
  *
@@ -117,7 +144,7 @@ int dk_set_leds_state(u32_t leds_on_mask, u32_t leds_off_mask);
  *
  *  @sa dk_set_led_on, dk_set_led_off
  */
-int dk_set_led(u8_t led_idx, u32_t val);
+int dk_set_led(uint8_t led_idx, uint32_t val);
 
 /** @brief Turn a single LED on.
  *
@@ -126,7 +153,7 @@ int dk_set_led(u8_t led_idx, u32_t val);
  *  @retval 0           If the operation was successful.
  *                      Otherwise, a (negative) error code is returned.
  */
-int dk_set_led_on(u8_t led_idx);
+int dk_set_led_on(uint8_t led_idx);
 
 /** @brief Turn a single LED off.
  *
@@ -135,7 +162,7 @@ int dk_set_led_on(u8_t led_idx);
  *  @retval 0           If the operation was successful.
  *                      Otherwise, a (negative) error code is returned.
  */
-int dk_set_led_off(u8_t led_idx);
+int dk_set_led_off(uint8_t led_idx);
 
 #ifdef __cplusplus
 }

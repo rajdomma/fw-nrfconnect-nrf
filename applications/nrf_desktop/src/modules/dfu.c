@@ -7,13 +7,15 @@
 #include <inttypes.h>
 
 #include <zephyr/types.h>
-#include <misc/byteorder.h>
-#include <flash_map.h>
+#include <sys/byteorder.h>
+#include <storage/flash_map.h>
 #include <pm_config.h>
-#include <dfu/mcuboot.h>
 
 #include "event_manager.h"
 #include "config_event.h"
+#include "hid_event.h"
+#include "ble_event.h"
+#include "dfu_lock.h"
 
 #define MODULE dfu
 #include "module_state_event.h"
@@ -25,24 +27,110 @@ LOG_MODULE_REGISTER(MODULE, CONFIG_DESKTOP_CONFIG_CHANNEL_DFU_LOG_LEVEL);
 #define FLASH_PAGE_SIZE_LOG2	12
 #define FLASH_PAGE_SIZE		BIT(FLASH_PAGE_SIZE_LOG2)
 #define FLASH_PAGE_ID(off)	((off) >> FLASH_PAGE_SIZE_LOG2)
+#define FLASH_CLEAN_VAL		UINT32_MAX
+#define FLASH_READ_CHUNK_SIZE	(FLASH_PAGE_SIZE / 8)
 
-#define DFU_TIMEOUT		K_SECONDS(2)
-#define REBOOT_REQUEST_TIMEOUT	K_MSEC(250)
+#define DFU_TIMEOUT			K_SECONDS(2)
+#define REBOOT_REQUEST_TIMEOUT		K_MSEC(250)
+#define BACKGROUND_FLASH_ERASE_TIMEOUT	K_SECONDS(15)
+
+#if CONFIG_SECURE_BOOT
+ #include <fw_info.h>
+ #define IMAGE0_ID		PM_S0_IMAGE_ID
+ #define IMAGE0_ADDRESS		PM_S0_IMAGE_ADDRESS
+ #define IMAGE1_ID		PM_S1_IMAGE_ID
+ #define IMAGE1_ADDRESS		PM_S1_IMAGE_ADDRESS
+#elif CONFIG_BOOTLOADER_MCUBOOT
+ #include <dfu/mcuboot.h>
+ #define IMAGE0_ID		PM_MCUBOOT_PRIMARY_ID
+ #define IMAGE0_ADDRESS		PM_MCUBOOT_PRIMARY_ADDRESS
+ #define IMAGE1_ID		PM_MCUBOOT_SECONDARY_ID
+ #define IMAGE1_ADDRESS		PM_MCUBOOT_SECONDARY_ADDRESS
+#else
+ #error Bootloader not supported.
+#endif
 
 static struct k_delayed_work dfu_timeout;
 static struct k_delayed_work reboot_request;
+static struct k_delayed_work background_erase;
 
 static const struct flash_area *flash_area;
-static u32_t cur_offset;
-static u32_t img_csum;
-static u32_t img_length;
+static uint32_t cur_offset;
+static uint32_t img_csum;
+static uint32_t img_length;
 
+static bool device_in_use;
+static bool is_flash_area_clean;
+
+enum dfu_opt {
+	DFU_OPT_START,
+	DFU_OPT_DATA,
+	DFU_OPT_SYNC,
+	DFU_OPT_REBOOT,
+	DFU_OPT_FWINFO,
+
+	DFU_OPT_COUNT
+};
+
+const static char * const opt_descr[] = {
+	[DFU_OPT_START] = "start",
+	[DFU_OPT_DATA] = "data",
+	[DFU_OPT_SYNC] = "sync",
+	[DFU_OPT_REBOOT] = "reboot",
+	[DFU_OPT_FWINFO] = "fwinfo"
+};
+
+static uint8_t dfu_slot_id(void)
+{
+#if CONFIG_BOOTLOADER_MCUBOOT
+	/* MCUBoot always puts new image in the secondary slot. */
+	return IMAGE1_ID;
+#else
+	BUILD_ASSERT(IMAGE0_ADDRESS < IMAGE1_ADDRESS);
+	if ((uint32_t)(uintptr_t)dfu_slot_id < IMAGE1_ADDRESS) {
+		return IMAGE1_ID;
+	}
+
+	return IMAGE0_ID;
+#endif
+}
+
+static bool is_page_clean(const struct flash_area *fa, off_t off, size_t len)
+{
+	static const size_t chunk_size = FLASH_READ_CHUNK_SIZE;
+	static const size_t chunk_cnt = FLASH_PAGE_SIZE / chunk_size;
+
+	BUILD_ASSERT(chunk_size * chunk_cnt == FLASH_PAGE_SIZE);
+	BUILD_ASSERT(chunk_size % sizeof(uint32_t) == 0);
+
+	uint32_t buf[chunk_size / sizeof(uint32_t)];
+
+	int err;
+
+	for (size_t i = 0; i < chunk_cnt; i++) {
+		err = flash_area_read(fa, off + i * chunk_size, buf, chunk_size);
+
+		if (err) {
+			LOG_ERR("Cannot read flash");
+			return false;
+		}
+
+		for (size_t j = 0; j < ARRAY_SIZE(buf); j++) {
+			if (buf[j] != FLASH_CLEAN_VAL) {
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
 
 static void dfu_timeout_handler(struct k_work *work)
 {
 	LOG_WRN("DFU timed out");
 
 	if (flash_area) {
+		dfu_unlock(MODULE_ID(MODULE));
 		flash_area_close(flash_area);
 		flash_area = NULL;
 	}
@@ -61,37 +149,80 @@ static void reboot_request_handler(struct k_work *work)
 	sys_reboot(SYS_REBOOT_WARM);
 }
 
-static bool is_new_page_started(u32_t off, size_t data_size)
+static void background_erase_handler(struct k_work *work)
 {
-	return FLASH_PAGE_ID(off - 1) != FLASH_PAGE_ID(off + data_size - 1);
+	static uint32_t erase_offset;
+	int err;
+
+	__ASSERT_NO_MSG(!is_flash_area_clean);
+
+	/* During page erase operation CPU stalls. As page erase takes tens of
+	 * milliseconds let's perform it in background, when user is not
+	 * interacting with the device.
+	 */
+	if (device_in_use) {
+		device_in_use = false;
+		k_delayed_work_submit(&background_erase,
+				      BACKGROUND_FLASH_ERASE_TIMEOUT);
+		return;
+	}
+
+	if (!flash_area) {
+		err = flash_area_open(dfu_slot_id(), &flash_area);
+		if (err) {
+			LOG_ERR("Cannot open flash area (%d)", err);
+			flash_area = NULL;
+			return;
+		}
+	}
+
+	__ASSERT_NO_MSG(erase_offset + FLASH_PAGE_SIZE <= flash_area->fa_size);
+
+	if (!is_page_clean(flash_area, erase_offset, FLASH_PAGE_SIZE)) {
+		err = flash_area_erase(flash_area, erase_offset, FLASH_PAGE_SIZE);
+		if (err) {
+			LOG_ERR("Cannot erase page (%d)", err);
+			flash_area_close(flash_area);
+			flash_area = NULL;
+			return;
+		}
+	}
+
+	erase_offset += FLASH_PAGE_SIZE;
+
+	if (erase_offset < flash_area->fa_size) {
+		k_delayed_work_submit(&background_erase, K_NO_WAIT);
+	} else {
+		LOG_INF("Secondary image slot is clean");
+
+		dfu_unlock(MODULE_ID(MODULE));
+		is_flash_area_clean = true;
+		erase_offset = 0;
+
+		flash_area_close(flash_area);
+		flash_area = NULL;
+	}
 }
 
-static void handle_dfu_data(const struct config_event *event)
+static void handle_dfu_data(const uint8_t *data, const size_t size)
 {
-	const u8_t *data = event->dyndata.data;
-	size_t size = event->dyndata.size;
 	int err;
+
+	if (!is_flash_area_clean) {
+		LOG_WRN("Flash is not clean");
+		return;
+	}
 
 	if (!flash_area) {
 		LOG_WRN("DFU was not started");
 		return;
 	}
 
-	LOG_INF("DFU data received cur_offset:%" PRIu32, cur_offset);
+	LOG_DBG("DFU data received cur_offset:%" PRIu32, cur_offset);
 
 	if (size == 0) {
 		LOG_WRN("Invalid DFU data header");
 		goto dfu_finish;
-	}
-
-	if (is_new_page_started(cur_offset, size)) {
-		err = flash_area_erase(flash_area,
-		       FLASH_PAGE_ID(cur_offset + size - 1) << FLASH_PAGE_SIZE_LOG2,
-		       FLASH_PAGE_SIZE);
-		if (err) {
-			LOG_ERR("Cannot erase page (%d)", err);
-			goto dfu_finish;
-		}
 	}
 
 	err = flash_area_write(flash_area, cur_offset, data, size);
@@ -102,12 +233,16 @@ static void handle_dfu_data(const struct config_event *event)
 
 	cur_offset += size;
 
-	LOG_INF("DFU chunk written");
+	LOG_DBG("DFU chunk written");
 
 	if (img_length == cur_offset) {
 		LOG_INF("DFU image written");
-		boot_request_upgrade(false);
-
+#ifdef CONFIG_BOOTLOADER_MCUBOOT
+		err = boot_request_upgrade(false);
+		if (err) {
+			LOG_ERR("Cannot request the DFU (%d)", err);
+		}
+#endif
 		goto dfu_finish;
 	} else {
 		k_delayed_work_submit(&dfu_timeout, DFU_TIMEOUT);
@@ -121,29 +256,35 @@ dfu_finish:
 	k_delayed_work_cancel(&dfu_timeout);
 }
 
-static void handle_dfu_start(const struct config_event *event)
+static void handle_dfu_start(const uint8_t *data, const size_t size)
 {
-	const u8_t *data = event->dyndata.data;
-	size_t size = event->dyndata.size;
+	uint32_t length;
+	uint32_t csum;
+	uint32_t offset;
 
-	u32_t length;
-	u32_t csum;
-	u32_t offset;
+	size_t data_size = sizeof(length) + sizeof(csum) + sizeof(offset);
 
-	size_t data_size = sizeof(length) + sizeof(csum) +
-			   sizeof(offset);
-
-	BUILD_ASSERT_MSG(sizeof(length) == sizeof(img_length), "");
-	BUILD_ASSERT_MSG(sizeof(csum) == sizeof(img_csum), "");
-	BUILD_ASSERT_MSG(sizeof(offset) == sizeof(cur_offset), "");
+	BUILD_ASSERT(sizeof(length) == sizeof(img_length), "");
+	BUILD_ASSERT(sizeof(csum) == sizeof(img_csum), "");
+	BUILD_ASSERT(sizeof(offset) == sizeof(cur_offset), "");
 
 	if (size < data_size) {
 		LOG_WRN("Invalid DFU start header");
 		return;
 	}
 
+	if (!is_flash_area_clean) {
+		LOG_WRN("Flash is not clean yet.");
+		return;
+	}
+
 	if (flash_area) {
 		LOG_WRN("DFU already in progress");
+		return;
+	}
+
+	if (!dfu_lock(MODULE_ID(MODULE))) {
+		LOG_WRN("DFU already started by another module");
 		return;
 	}
 
@@ -173,87 +314,157 @@ static void handle_dfu_start(const struct config_event *event)
 				length, img_length,
 				csum, img_csum,
 				offset, cur_offset);
+
+			dfu_unlock(MODULE_ID(MODULE));
 			return;
 		} else {
 			LOG_INF("Restart DFU");
 		}
 	} else {
-		img_length = length;
-		img_csum = csum;
-		cur_offset = 0;
+		if (cur_offset != 0) {
+			k_delayed_work_submit(&background_erase, K_NO_WAIT);
+			is_flash_area_clean = false;
+			cur_offset = 0;
+			img_length = 0;
+			img_csum = 0;
+
+			return;
+		} else {
+			img_length = length;
+			img_csum = csum;
+		}
 	}
 
-	int err = flash_area_open(PM_MCUBOOT_SECONDARY_ID, &flash_area);
+	__ASSERT_NO_MSG(flash_area == NULL);
+	int err = flash_area_open(dfu_slot_id(), &flash_area);
+
 	if (err) {
 		LOG_ERR("Cannot open flash area (%d)", err);
 
 		flash_area = NULL;
+		dfu_unlock(MODULE_ID(MODULE));
 	} else if (flash_area->fa_size < img_length) {
 		LOG_WRN("Insufficient space for DFU (%zu < %" PRIu32 ")",
 			flash_area->fa_size, img_length);
 
 		flash_area_close(flash_area);
 		flash_area = NULL;
+		dfu_unlock(MODULE_ID(MODULE));
 	} else {
 		LOG_INF("DFU started");
+		k_delayed_work_submit(&dfu_timeout, DFU_TIMEOUT);
 	}
-
-	k_delayed_work_submit(&dfu_timeout, DFU_TIMEOUT);
 }
 
-static void handle_dfu_sync(const struct config_fetch_request_event *event)
+static void handle_dfu_sync(uint8_t *data, size_t *size)
 {
 	LOG_INF("DFU sync requested");
 
-	u8_t dfu_active = (flash_area != NULL) ? 0x01 : 0x00;
+	uint8_t dfu_active = (flash_area != NULL) ? 0x01 : 0x00;
 
 	size_t data_size = sizeof(dfu_active) + sizeof(img_length) +
 			   sizeof(img_csum) + sizeof(cur_offset);
 
-	struct config_fetch_event *fetch_event =
-		new_config_fetch_event(data_size);
-	fetch_event->id = event->id;
-	fetch_event->recipient = event->recipient;
-	fetch_event->channel_id = event->channel_id;
+	*size = data_size;
 
 	size_t pos = 0;
 
-	fetch_event->dyndata.data[pos] = dfu_active;
+	data[pos] = dfu_active;
 	pos += sizeof(dfu_active);
 
-	sys_put_le32(img_length, &fetch_event->dyndata.data[pos]);
+	sys_put_le32(img_length, &data[pos]);
 	pos += sizeof(img_length);
 
-	sys_put_le32(img_csum, &fetch_event->dyndata.data[pos]);
+	sys_put_le32(img_csum, &data[pos]);
 	pos += sizeof(img_csum);
 
-	sys_put_le32(cur_offset, &fetch_event->dyndata.data[pos]);
+	sys_put_le32(cur_offset, &data[pos]);
 	pos += sizeof(cur_offset);
-
-	EVENT_SUBMIT(fetch_event);
 }
 
-static void handle_reboot_request(const struct config_fetch_request_event *event)
+static void handle_reboot_request(uint8_t *data, size_t *size)
 {
 	LOG_INF("System reboot requested");
 
-	struct config_fetch_event *fetch_event =
-		new_config_fetch_event(0);
-
-	fetch_event->id = event->id;
-	fetch_event->recipient = event->recipient;
-	fetch_event->channel_id = event->channel_id;
-
-	EVENT_SUBMIT(fetch_event);
+	*size = sizeof(bool);
+	data[0] = true;
 
 	k_delayed_work_submit(&reboot_request, REBOOT_REQUEST_TIMEOUT);
 }
 
-static void handle_image_info_request(const struct config_fetch_request_event *event)
+#if CONFIG_SECURE_BOOT
+static void handle_image_info_request(uint8_t *data, size_t *size)
+{
+	const struct fw_info *info;
+	uint8_t flash_area_id;
+
+	if (dfu_slot_id() == IMAGE1_ID) {
+		info = fw_info_find(IMAGE0_ADDRESS);
+		flash_area_id = 0;
+	} else {
+		info = fw_info_find(IMAGE1_ADDRESS);
+		flash_area_id = 1;
+	}
+
+	if (info) {
+		uint32_t image_size = info->size;
+		uint32_t build_num = info->version;
+		uint8_t major = 0;
+		uint8_t minor = 0;
+		uint16_t revision = 0;
+
+		LOG_INF("Primary slot| image size:%" PRIu32
+			" major:%" PRIu8 " minor:%" PRIu8 " rev:0x%" PRIx16
+			" build:0x%" PRIx32, image_size, major, minor,
+			revision, build_num);
+
+		size_t data_size = sizeof(flash_area_id) +
+				   sizeof(image_size) +
+				   sizeof(major) +
+				   sizeof(minor) +
+				   sizeof(revision) +
+				   sizeof(build_num);
+		size_t pos = 0;
+
+		*size = data_size;
+
+		data[pos] = flash_area_id;
+		pos += sizeof(flash_area_id);
+
+		sys_put_le32(image_size, &data[pos]);
+		pos += sizeof(image_size);
+
+		data[pos] = major;
+		pos += sizeof(major);
+
+		data[pos] = minor;
+		pos += sizeof(minor);
+
+		sys_put_le16(revision, &data[pos]);
+		pos += sizeof(revision);
+
+		sys_put_le32(build_num, &data[pos]);
+		pos += sizeof(build_num);
+	} else {
+		LOG_ERR("Cannot obtain image information");
+	}
+}
+#elif CONFIG_BOOTLOADER_MCUBOOT
+static void handle_image_info_request(uint8_t *data, size_t *size)
 {
 	struct mcuboot_img_header header;
-	u8_t flash_area_id = PM_MCUBOOT_PRIMARY_ID;
-	int err = boot_read_bank_header(flash_area_id, &header,
+	uint8_t flash_area_id;
+	uint8_t bank_header_area_id;
+
+	if (dfu_slot_id() == IMAGE1_ID) {
+		flash_area_id = 0;
+		bank_header_area_id = IMAGE0_ID;
+	} else {
+		flash_area_id = 1;
+		bank_header_area_id = IMAGE1_ID;
+	}
+
+	int err = boot_read_bank_header(bank_header_area_id, &header,
 					sizeof(header));
 
 	if (!err) {
@@ -269,58 +480,43 @@ static void handle_image_info_request(const struct config_fetch_request_event *e
 				   sizeof(header.h.v1.sem_ver.minor) +
 				   sizeof(header.h.v1.sem_ver.revision) +
 				   sizeof(header.h.v1.sem_ver.build_num);
-		struct config_fetch_event *fetch_event =
-			new_config_fetch_event(data_size);
-
-		fetch_event->id = event->id;
-		fetch_event->recipient = event->recipient;
-		fetch_event->channel_id = event->channel_id;
-
 		size_t pos = 0;
 
-		fetch_event->dyndata.data[pos] = flash_area_id;
+		*size = data_size;
+
+		data[pos] = flash_area_id;
 		pos += sizeof(flash_area_id);
 
-		sys_put_le32(header.h.v1.image_size, &fetch_event->dyndata.data[pos]);
+		sys_put_le32(header.h.v1.image_size, &data[pos]);
 		pos += sizeof(header.h.v1.image_size);
 
-		fetch_event->dyndata.data[pos] = header.h.v1.sem_ver.major;
+		data[pos] = header.h.v1.sem_ver.major;
 		pos += sizeof(header.h.v1.sem_ver.major);
 
-		fetch_event->dyndata.data[pos] = header.h.v1.sem_ver.minor;
+		data[pos] = header.h.v1.sem_ver.minor;
 		pos += sizeof(header.h.v1.sem_ver.minor);
 
-		sys_put_le16(header.h.v1.sem_ver.revision, &fetch_event->dyndata.data[pos]);
+		sys_put_le16(header.h.v1.sem_ver.revision, &data[pos]);
 		pos += sizeof(header.h.v1.sem_ver.revision);
 
-		sys_put_le32(header.h.v1.sem_ver.build_num, &fetch_event->dyndata.data[pos]);
+		sys_put_le32(header.h.v1.sem_ver.build_num, &data[pos]);
 		pos += sizeof(header.h.v1.sem_ver.build_num);
-
-		EVENT_SUBMIT(fetch_event);
 	} else {
 		LOG_ERR("Cannot obtain image information");
 	}
 }
+#endif
 
-static void handle_config_event(const struct config_event *event)
+static void update_config(const uint8_t opt_id, const uint8_t *data,
+			  const size_t size)
 {
-	if (!event->store_needed) {
-		/* Accept only events coming from transport. */
-		return;
-	}
-
-	if (GROUP_FIELD_GET(event->id) != EVENT_GROUP_DFU) {
-		/* Only DFU events. */
-		return;
-	}
-
-	switch (TYPE_FIELD_GET(event->id)) {
-	case DFU_DATA:
-		handle_dfu_data(event);
+	switch (opt_id) {
+	case DFU_OPT_DATA:
+		handle_dfu_data(data, size);
 		break;
 
-	case DFU_START:
-		handle_dfu_start(event);
+	case DFU_OPT_START:
+		handle_dfu_start(data, size);
 		break;
 
 	default:
@@ -330,24 +526,19 @@ static void handle_config_event(const struct config_event *event)
 	}
 }
 
-static void handle_config_fetch_request_event(const struct config_fetch_request_event *event)
+static void fetch_config(const uint8_t opt_id, uint8_t *data, size_t *size)
 {
-	if (GROUP_FIELD_GET(event->id) != EVENT_GROUP_DFU) {
-		/* Only DFU events. */
-		return;
-	}
-
-	switch (TYPE_FIELD_GET(event->id)) {
-	case DFU_REBOOT:
-		handle_reboot_request(event);
+	switch (opt_id) {
+	case DFU_OPT_REBOOT:
+		handle_reboot_request(data, size);
 		break;
 
-	case DFU_IMGINFO:
-		handle_image_info_request(event);
+	case DFU_OPT_FWINFO:
+		handle_image_info_request(data, size);
 		break;
 
-	case DFU_SYNC:
-		handle_dfu_sync(event);
+	case DFU_OPT_SYNC:
+		handle_dfu_sync(data, size);
 		break;
 
 	default:
@@ -359,15 +550,18 @@ static void handle_config_fetch_request_event(const struct config_fetch_request_
 
 static bool event_handler(const struct event_header *eh)
 {
-	if (is_config_event(eh)) {
-		handle_config_event(cast_config_event(eh));
+	if (is_hid_report_event(eh)) {
+		device_in_use = true;
 
 		return false;
 	}
 
-	if (is_config_fetch_request_event(eh)) {
-		handle_config_fetch_request_event(
-				cast_config_fetch_request_event(eh));
+	GEN_CONFIG_EVENT_HANDLERS(STRINGIFY(MODULE), opt_descr, update_config,
+				  fetch_config);
+
+	if (is_ble_peer_event(eh)) {
+		device_in_use = true;
+
 		return false;
 	}
 
@@ -376,13 +570,24 @@ static bool event_handler(const struct event_header *eh)
 			cast_module_state_event(eh);
 
 		if (check_state(event, MODULE_ID(main), MODULE_STATE_READY)) {
+#if CONFIG_BOOTLOADER_MCUBOOT
 			int err = boot_write_img_confirmed();
+
 			if (err) {
 				LOG_ERR("Cannot confirm a running image");
 			}
-
+#endif
 			k_delayed_work_init(&dfu_timeout, dfu_timeout_handler);
 			k_delayed_work_init(&reboot_request, reboot_request_handler);
+			k_delayed_work_init(&background_erase, background_erase_handler);
+
+			if (!dfu_lock(MODULE_ID(MODULE))) {
+				/* Should not happen. */
+				__ASSERT_NO_MSG(false);
+			} else {
+				k_delayed_work_submit(&background_erase,
+						      K_NO_WAIT);
+			}
 		}
 		return false;
 	}
@@ -394,6 +599,7 @@ static bool event_handler(const struct event_header *eh)
 }
 
 EVENT_LISTENER(MODULE, event_handler);
+EVENT_SUBSCRIBE(MODULE, hid_report_event);
 EVENT_SUBSCRIBE_EARLY(MODULE, config_event);
-EVENT_SUBSCRIBE(MODULE, config_fetch_request_event);
 EVENT_SUBSCRIBE(MODULE, module_state_event);
+EVENT_SUBSCRIBE(MODULE, ble_peer_event);

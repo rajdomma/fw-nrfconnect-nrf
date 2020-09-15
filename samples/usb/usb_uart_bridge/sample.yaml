@@ -2,8 +2,8 @@ sample:
   description: USB-UART bridge sample
   name: USB-UART bridge
 tests:
-  test_build:
+  samples.usb.usb_uart_bridge:
     build_only: true
     build_on_all: true
-    platform_whitelist: nrf52840_pca20035
+    platform_whitelist: thingy91_nrf52840
     tags: ci_build

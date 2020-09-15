@@ -1,9 +1,10 @@
 #include <zephyr.h>
 #include <stdio.h>
-#include <flash.h>
+#include <drivers/flash.h>
 #include <net/socket.h>
 #include <nrf_socket.h>
 #include <logging/log.h>
+#include <dfu/dfu_target.h>
 
 LOG_MODULE_REGISTER(dfu_target_modem, CONFIG_DFU_TARGET_LOG_LEVEL);
 
@@ -11,13 +12,14 @@ LOG_MODULE_REGISTER(dfu_target_modem, CONFIG_DFU_TARGET_LOG_LEVEL);
 #define MODEM_MAGIC 0x7544656d
 
 struct modem_delta_header {
-	u16_t pad1;
-	u16_t pad2;
-	u32_t magic;
+	uint16_t pad1;
+	uint16_t pad2;
+	uint32_t magic;
 };
 
 static int  fd;
 static int  offset;
+static dfu_target_callback_t callback;
 
 static int get_modem_error(void)
 {
@@ -51,11 +53,12 @@ static int apply_modem_upgrade(void)
 	}
 	return 0;
 }
-
+#define SLEEP_TIME 1
 static int delete_banked_modem_fw(void)
 {
 	int err;
 	socklen_t len = sizeof(offset);
+	int timeout = CONFIG_DFU_TARGET_MODEM_TIMEOUT;
 
 	LOG_INF("Deleting firmware image, this can take several minutes");
 	err = setsockopt(fd, SOL_DFU, SO_DFU_BACKUP_DELETE, NULL, 0);
@@ -63,18 +66,23 @@ static int delete_banked_modem_fw(void)
 		LOG_ERR("Failed to delete backup, errno %d", errno);
 		return -EFAULT;
 	}
-
 	while (true) {
 		err = getsockopt(fd, SOL_DFU, SO_DFU_OFFSET, &offset, &len);
 		if (err < 0) {
+			if (timeout < 0) {
+				callback(DFU_TARGET_EVT_TIMEOUT);
+				timeout = CONFIG_DFU_TARGET_MODEM_TIMEOUT;
+			}
 			if (errno == ENOEXEC) {
 				err = get_modem_error();
 				if (err != DFU_ERASE_PENDING) {
 					LOG_ERR("DFU error: %d", err);
 				}
-				k_sleep(K_MSEC(500));
+				k_sleep(K_SECONDS(SLEEP_TIME));
 			}
+			timeout -= SLEEP_TIME;
 		} else {
+			callback(DFU_TARGET_EVT_ERASE_DONE);
 			LOG_INF("Modem FW delete complete");
 			break;
 		}
@@ -88,7 +96,7 @@ static int modem_dfu_socket_init(void)
 {
 	int err;
 	socklen_t len;
-	u8_t version[36];
+	uint8_t version[36];
 	char version_string[37];
 
 	/* Create a socket for firmware upgrade*/
@@ -122,18 +130,32 @@ bool dfu_target_modem_identify(const void *const buf)
 
 }
 
-int dfu_target_modem_init(size_t file_size)
+int dfu_target_modem_init(size_t file_size, dfu_target_callback_t cb)
 {
-	/* We have no way of checking the amount of flash available in the modem
-	 * with the current API
-	 */
-	ARG_UNUSED(file_size);
 	int err;
+	size_t scratch_space;
 	socklen_t len = sizeof(offset);
+
+	callback = cb;
 
 	err = modem_dfu_socket_init();
 	if (err < 0) {
 		return err;
+	}
+
+	err = getsockopt(fd, SOL_DFU, SO_DFU_RESOURCES, &scratch_space, &len);
+	if (err < 0) {
+		if (errno == ENOEXEC) {
+			LOG_ERR("Modem error: %d", get_modem_error());
+		} else {
+			LOG_ERR("getsockopt(OFFSET) errno: %d", errno);
+		}
+	}
+
+	if (file_size > scratch_space) {
+		LOG_ERR("Requested file too big to fit in flash %d > %d",
+			file_size, scratch_space);
+		return -EFBIG;
 	}
 
 	/* Check offset, store to local variable */
@@ -171,10 +193,18 @@ int dfu_target_modem_write(const void *const buf, size_t len)
 	int err = 0;
 	int sent = 0;
 	int modem_error = 0;
+	int send_result = 0;
 
-	sent = send(fd, buf, len, 0);
-	if (sent > 0) {
-		return 0;
+	while (send_result >= 0) {
+		send_result = send(fd, (((uint8_t *)buf) + sent),
+				   (len - sent), 0);
+		if (send_result > 0) {
+			sent += send_result;
+			if (sent >= len) {
+				offset += len;
+				return 0;
+			}
+		}
 	}
 
 	if (errno != ENOEXEC) {
@@ -194,9 +224,17 @@ int dfu_target_modem_write(const void *const buf, size_t len)
 		} else {
 			return 0;
 		}
+	case DFU_AREA_NOT_BLANK:
+		delete_banked_modem_fw();
+		err = dfu_target_modem_write(buf, len);
+		if (err < 0) {
+			return -EINVAL;
+		} else {
+			return 0;
+		}
+	default:
+		return -EFAULT;
 	}
-
-	return -EFAULT;
 }
 
 int dfu_target_modem_done(bool successful)
@@ -222,4 +260,3 @@ int dfu_target_modem_done(bool successful)
 
 	return 0;
 }
-

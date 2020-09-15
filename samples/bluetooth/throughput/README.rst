@@ -51,7 +51,7 @@ By default, the following connection parameter values are used:
 Changing connection parameter values
 ====================================
 
-You can experiment with different connection parameter values by reconfiguring the values using menuconfig and then compiling and flashing the sample again to at least one of the boards.
+You can experiment with different connection parameter values by reconfiguring the values using menuconfig and then compiling and programming the sample again to at least one of the boards.
 
 .. note::
    In a *Bluetooth* Low Energy connection, the different devices negotiate the connection parameters that are used.
@@ -67,9 +67,17 @@ Requirements
 
 * Two of the following development boards:
 
-  * nRF52840 Development Kit board (PCA10056)
-  * nRF52 Development Kit board (PCA10040)
-  * nRF51 Development Kit board (PCA10028) - limited support;
+  * |nRF5340DK|; if you use this development kit, add the following options to the configuration of the network sample:
+
+    .. code-block:: none
+
+       CONFIG_BT_CTLR_TX_BUFFER_SIZE=251
+       CONFIG_BT_CTLR_DATA_LENGTH_MAX=251
+       CONFIG_BT_RX_BUF_LEN=255
+
+  * |nRF52840DK|
+  * |nRF52DK|
+  * |nRF51DK| - limited support;
     some features, like an over-the-air data rate of 2 Ms/s, are not available on this board
 
   You can mix different boards.
@@ -90,8 +98,9 @@ After programming the sample to both boards, test it by performing the following
 1. Connect to both boards with a terminal emulator (for example, PuTTY).
    See :ref:`putty` for the required settings.
 #. Reset both boards.
+#. In one of the terminal emulators, type "s" to start the application on the connected board in the slave (peer) role.
+#. In the other terminal emulator, type "m" to start the application in the master (tester) role.
 #. Observe that the boards establish a connection.
-   When they are connected, one of them serves as *tester* and the other one as *peer*.
    The tester outputs the following information::
 
        Ready, press any key to start
@@ -116,8 +125,8 @@ For the tester::
    [bt] [INF] bt_dev_show_info: HCI: version 5.0 (0x09) revision 0x0000, manufacturer 0x05f1
    [bt] [INF] bt_dev_show_info: LMP: version 5.0 (0x09) subver 0xffff
    Bluetooth initialized
-   Advertising successfully started
-   Scanning successfully started
+   Choose device role - type s (slave role) or m (master role):
+   Master role. Starting scanning
    Found a peer device c5:6f:8a:38:95:27 (random)
    Connected as master
    Conn. interval is 320 units
@@ -169,8 +178,8 @@ For the peer::
    [bt] [INF] hci_vs_init: HW Variant: nRr (0x00) Version 1.12 Build 99
    [bt] [INF] bt_dev_show_info: Identity: c5:6f:8a:38:95:27 (random)
    [bt] [INF] bt_devized
-   Advertising successfully started
-   Scanning successfully started
+   Choose device role - type s (slave role) or m (master role):
+   Slave role. Starting advertising
    Found a peer device c5:ca:14:98:3b:90 (random)
    Connected as slave
    Conn. interval is 320 units
@@ -196,11 +205,11 @@ This sample uses the following |NCS| libraries:
 In addition, it uses the following Zephyr libraries:
 
 * ``include/console.h``
-* :ref:`zephyr:kernel`:
+* :ref:`zephyr:kernel_api`:
 
   * ``include/kernel.h``
 
-* ``include/misc/printk.h``
+* ``include/sys/printk.h``
 * ``include/zephyr/types.h``
 * :ref:`zephyr:bluetooth_api`:
 

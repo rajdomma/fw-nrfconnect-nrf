@@ -31,6 +31,7 @@ enum led_system_state {
 enum led_peer_state {
 	LED_PEER_STATE_DISCONNECTED,
 	LED_PEER_STATE_CONNECTED,
+	LED_PEER_STATE_PEER_SEARCH,
 	LED_PEER_STATE_CONFIRM_SELECT,
 	LED_PEER_STATE_CONFIRM_ERASE,
 	LED_PEER_STATE_ERASE_ADV,
@@ -53,9 +54,9 @@ enum led_id {
 #endif
 
 #if defined(CONFIG_BT_PERIPHERAL)
-#define LED_PEER_CNT (CONFIG_BT_MAX_PAIRED - 1)
+#define LED_PEER_COUNT (CONFIG_BT_MAX_PAIRED - 1)
 #else
-#define LED_PEER_CNT (CONFIG_BT_MAX_PAIRED)
+#define LED_PEER_COUNT 1
 #endif
 
 #ifdef __cplusplus

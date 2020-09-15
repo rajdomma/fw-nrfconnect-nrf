@@ -20,9 +20,9 @@ static K_THREAD_STACK_DEFINE(sensor_simulated_thread_stack,
 			     SENSOR_SIMULATED_THREAD_STACK_SIZE);
 static struct k_thread sensor_simulated_thread;
 
-static s8_t value1;
-static s16_t value2;
-static s32_t value3;
+static int8_t value1;
+static int16_t value2;
+static int32_t value3;
 
 static void measure_update(void)
 {
@@ -46,7 +46,7 @@ static void sensor_simulated_thread_fn(void)
 {
 	while (true) {
 		measure();
-		k_sleep(SENSOR_SIMULATED_THREAD_SLEEP);
+		k_sleep(K_MSEC(SENSOR_SIMULATED_THREAD_SLEEP));
 	}
 }
 
@@ -86,6 +86,5 @@ static bool event_handler(const struct event_header *eh)
 }
 
 EVENT_LISTENER(MODULE, event_handler);
-EVENT_SUBSCRIBE(MODULE, module_state_event);
 EVENT_SUBSCRIBE(MODULE, control_event);
 EVENT_SUBSCRIBE(MODULE, config_event);

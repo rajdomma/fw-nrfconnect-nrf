@@ -4,8 +4,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-title: BH1749 Digital 16bit Serial Output Type Color Sensor IC
-
 description: >
     This is a representation of the BH1749 sensor
 
@@ -15,5 +13,5 @@ include: i2c-device.yaml
 
 properties:
     int-gpios:
-      type: compound
+      type: phandle-array
       required: true

@@ -5,15 +5,21 @@ USB-UART bridge
 
 The USB-UART bridge acts as a serial adapter, exposing 2 UART pairs to a USB host as 2 CDC ACM devices.
 
+.. note::
+
+   This sample has been enhanced by the :ref:`connectivity_bridge` application, and is planned to be removed in the future.
+
 
 Requirements
 ************
 
-* One of the following development boards:
+The sample supports the following nRF52840-based device:
 
-  * Thingy:91 board (PCA20035)
+.. include:: /includes/boardname_tables/sample_boardnames.txt
+   :start-after: set17_start
+   :end-before: set17_end
 
-* A USB host which can communicate with CDC ACM devices, like a Windows or Linux PC
+The sample also requires a USB host which can communicate with CDC ACM devices, like a Windows or Linux PC.
 
 
 Building and running
@@ -38,4 +44,4 @@ Dependencies
 
 This sample uses the following Zephyr subsystems:
 
-* :ref:`zephyr:usb_device_stack`
+* :ref:`zephyr:usb_api`

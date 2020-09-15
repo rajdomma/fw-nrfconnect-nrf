@@ -1,7 +1,7 @@
 .. _ug_nrf9160:
 
-Working with nRF9160 samples
-############################
+Working with nRF9160
+####################
 
 The |NCS| provides support for developing on the nRF9160 System in Package
 (SiP) using the nRF9160 DK (PCA10090), and offers samples
@@ -10,7 +10,7 @@ dedicated for this device.
 .. _nrf9160_ug_intro:
 
 Introduction
-============
+************
 
 The nRF9160 SiP integrates an application MCU, a full LTE modem, RF front end,
 and power management.
@@ -24,33 +24,102 @@ For more details on the SiP, see the `nRF9160 product website`_.
 
 The figure illustrates the conceptual layout when targeting
 an nRF9160 Cortex-M33 application MCU with TrustZone.
-The M33 TrustZone divides the MCU into secure and non-secure domains.
-When the MCU boots, it always starts executing from the secure area,
-which in this case is the **Secure Partition Manager**.
-The **Secure Partition Manager** configures a part of memory and peripherals to be
-non-secure and then jumps to the main application located in the non-secure area.
-The **BSD Socket** library must be embedded in the application because
-BSD sockets are the primary interface to the LTE modem.
+
+Application MCU
+===============
+
+The M33 TrustZone divides the application MCU into secure and non-secure domains.
+When the MCU boots, it always starts executing from the secure area.
+The secure bootloader chain starts the :ref:`nrf9160_ug_secure_partition_manager`, which configures a part of memory and peripherals to be non-secure and then jumps to the main application located in the non-secure area.
+
+In Zephyr, :ref:`zephyr:nrf9160dk_nrf9160` is divided into two different build targets:
+
+* ``nrf9160dk_nrf9160`` for firmware in the secure domain
+* ``nrf9160dk_nrf9160ns`` for firmware in the non-secure domain
+
+Make sure to select the suitable build target when building your application.
+
+
+Secure bootloader chain
+-----------------------
+
+A secure bootloader chain protects your application against running unauthorized code, and it enables you to do device firmware updates (DFU).
+See :ref:`ug_bootloader` for more information.
+
+A bootloader chain is optional.
+Not all of the nRF9160 samples include a secure bootloader chain, but the ones that do use the :ref:`bootloader` sample and :doc:`mcuboot:index`.
 
 .. _nrf9160_ug_secure_partition_manager:
 
 Secure Partition Manager
-========================
+------------------------
 
-To use any of the nRF9160 samples, you must first compile and flash the
-**Secure Partition Manager** sample.
+All nRF9160 samples require the :ref:`secure_partition_manager` sample.
 It provides a reference implementation of a Secure Partition Manager firmware.
 This firmware is required to set up the nRF9160 DK so that it can run user applications in the non-secure domain.
 
-Note that the **Secure Partition Manager** sample is automatically included in the build for the nrf9160_pca10090ns board.
-To disable the automatic inclusion of the **Secure Partition Manager** sample, set the option ``CONFIG_SPM=n`` in the project configuration.
+The Secure Partition Manager sample is automatically included in the build for the ``nrf9160dk_nrf9160ns`` build target.
+To disable the automatic inclusion of the Secure Partition Manager sample, set the option :option:`CONFIG_SPM` to "n" in the project configuration.
 
-For detailed documentation of the sample, see :ref:`secure_partition_manager`.
+
+Application
+-----------
+
+The user application runs in the non-secure domain.
+Therefore, it must be built for the ``nrf9160dk_nrf9160ns`` build target.
+
+The application image might require other images to be present.
+Depending on the configuration, all these images can be built at the same time in a :ref:`multi-image build <ug_multi_image>`.
+
+All nRF9160 samples include the :ref:`secure_partition_manager` sample, which can be enabled or disabled with the :option:`CONFIG_SPM` option.
+Some also include the :ref:`bootloader` sample (:option:`CONFIG_SECURE_BOOT`) and :doc:`mcuboot:index` (:option:`CONFIG_BOOTLOADER_MCUBOOT`).
+
+BSD socket
+----------
+
+All nRF9160 applications must include the BSD library.
+The BSD library is the primary interface for operating the nRF9160 modem to establish LTE-M, NBIOT, and GNSS connections.
+
+The BSD library is Nordic Semiconductor's implementation of the BSD Socket API.
+See :ref:`nrfxlib:bsdlib` for detailed information.
+
+
+LTE modem
+=========
+
+The LTE modem handles the LTE communication.
+It is controlled through `AT commands <AT Commands Reference Guide>`_.
+
+The firmware for the modem is available as precompiled binary.
+You can download the firmware from the `nRF9160 product website (compatible downloads)`_.
+The zip file contains both the full firmware and patches to upgrade from one version to another.
+
+Different versions of the LTE modem firmware are available and these versions are certified for the mobile network operators who have their own certification programs.
+See the `nRF9160 compatibility matrix`_ for more information.
+
+.. note::
+
+   Most operators do not require other certifications than GCF or PTCRB.
+   For the current status of GCF and PTCRB certifications, see `nRF9160 certifications`_.
+
+There are two ways to update the modem firmware:
+
+Full upgrade
+  A full upgrade of the modem firmware requires a wired connection.
+  The upgrade is done through the nRF Connect Programmer, which is part of `nRF Connect for Desktop`_.
+  See `Updating the nRF9160 DK cellular modem`_ in the nRF Connect Programmer User Guide for instructions.
+
+Delta patches
+  Delta patches are upgrades that contain only the difference from the last version.
+  A delta patch can only upgrade the modem firmware from one specific version to another version.
+  When applying a delta patch, you must therefore ensure that this patch works with the current firmware version on your device.
+  Delta patches are applied as firmware over-the-air (FOTA) upgrades.
+  See :ref:`nrf9160_ug_fota` for more information.
 
 .. _nrf9160_ug_band_lock:
 
 Band lock
-=========
+*********
 
 The band lock is a functionality of the application that lets you send an
 AT command to the modem instructing it to operate only on specific bands.
@@ -80,7 +149,7 @@ For more detailed information, see the `band lock section in the AT Commands ref
 .. _nrf9160_ug_network_mode:
 
 Network mode
-============
+************
 
 The modem supports LTE-M (Cat-M1) and Narrowband Internet of Things (NB-IoT or LTE Cat-NB).
 By default, the modem starts in LTE-M mode.
@@ -101,10 +170,85 @@ If the modem is shut down gracefully before the next boot (by using ``AT+CFUN=0`
 
 For more detailed information, see the `system mode section in the AT Commands reference document`_.
 
+.. |An nRF9160-based device| replace:: An nRF9160 DK
+.. |an nRF9160-based device| replace:: an nRF9160 DK
+
+.. _nrf9160_gps_lte:
+
+.. nrf9160_gps_lte_start
+
+Concurrent GPS and LTE
+======================
+
+|An nRF9160-based device| supports GPS in LTE-M and NB-IoT.
+Concurrent operation of GPS with optional power saving features, such as extended Discontinuous Reception (eDRX) and Power Saving Mode (PSM), is also supported and recommended.
+
+The following figure shows how the data transfer occurs in |an nRF9160-based device| with power saving in place.
+
+.. figure:: /images/power_consumption.png
+   :alt: Power consumption
+
+See `Energy efficiency`_ for more information.
+
+Asset Tracker enables the concurrent working of GPS and LTE in eDRX and PSM modes when the device is in `RRC idle mode`_.
+The time between the transition of a device from RRC connected mode (data transfer mode) to RRC idle mode is dependent on the network.
+Typically the time ranges between 5 seconds to 70 seconds after the last data transfer on LTE.
+Sensor and GPS data is sent to the cloud only during the data transfer phase.
+
+.. nrf9160_gps_lte_end
+
+.. _nrf9160_ug_fota:
+
+FOTA upgrades
+*************
+
+|fota_upgrades_def|
+FOTA upgrades can be used to apply delta patches to the `LTE modem`_ firmware and to replace the upgradable bootloader or the application.
+
+.. note::
+   Even though the Secure Partition Manager and the application are two individually compiled components, they are treated as a single binary blob in the context of firmware upgrades.
+   When we refer to the application in this section, we therefore mean the application including the Secure Partition Manager.
+
+To perform a FOTA upgrade, complete the following steps:
+
+1. Make sure that your application supports FOTA upgrades.
+      To download and apply FOTA upgrades, your application must use the :ref:`lib_fota_download` library.
+      This library deduces the type of upgrade by inspecting the header of the firmware and invokes the :ref:`lib_dfu_target` library to apply the firmware upgrade.
+      By default, the DFU target library supports all kinds of FOTA upgrades, but you can disable support for specific targets.
+
+      In addition, the following requirements apply:
+
+      * |fota_upgrades_req_mcuboot|
+      * If you want to upgrade the upgradable bootloader, the :ref:`bootloader` must be used (:option:`CONFIG_SECURE_BOOT`).
+      * If you want to upgrade the modem firmware, neither MCUboot nor the immutable bootloader are required, because the modem firmware upgrade is handled by the modem itself.
+
+#. Create a binary file that contains the new image.
+      This step does not apply for upgrades of the modem firmware.
+      You can download delta patches for the modem firmware from the `nRF9160 product website (compatible downloads)`_.
+
+      |fota_upgrades_building|
+      The :file:`app_update.bin` file is the file that should be uploaded to the server.
+
+      To create binary files for a bootloader upgrade, make sure that :option:`CONFIG_SECURE_BOOT` and :option:`CONFIG_BUILD_S1_VARIANT` are enabled and build MCUboot as usual.
+      The build will create a binary file for each variant of the upgradable bootloader, one for each bootloader slot.
+      See :ref:`upgradable_bootloader` for more information.
+
+#. Make the binary file (or files) available for download.
+     Upload the file or files to a web server that is compatible with the :ref:`lib_download_client` library.
+     One way of doing this is to upload the files to an Amazon Web Services Simple Storage Service (AWS S3) bucket.
+     See the :ref:`lib_aws_fota` documentation for instructions.
+
+     Your application must be able to retrieve the host and file name for the binary file.
+     See :ref:`lib_fota_download` for information about the format of this information, especially when providing two files for a bootloader upgrade.
+     You can hardcode the information in the application, or you can use functionality like AWS jobs to provide the URL dynamically.
+
+The full FOTA procedure depends on where the binary files are hosted for download.
+See the :ref:`aws_fota_sample` sample for a full implementation using AWS.
+
 .. _nrf9160_ug_drivs_libs_samples:
 
 Board controller
-================
+****************
 
 The nRF9160 DK contains an nRF52840 SoC that is used to route some of the nRF9160 SiP
 pins to different components on the DK, such as the Arduino pin headers, LEDs,
@@ -114,82 +258,15 @@ the `nRF9160 DK board control section in the nRF9160 DK User Guide`_.
 The nRF52840 SoC on the DK comes preprogrammed with a firmware.
 If you need to restore the original firmware at some point, download the
 nRF9160 DK board controller FW from the `nRF9160 DK product page`_.
-To program the HEX file, use nrfjprog (which is part of the `nRF5 Command Line Tools`_).
+To program the HEX file, use nrfjprog (which is part of the `nRF Command Line Tools`_).
 
 If you want to route some pins differently from what is done in the
 preprogrammed firmware, program the :ref:`zephyr:hello_world` sample instead of the preprogrammed firmware.
-Configure the sample (located under ``samples/hello_world``) for the nrf52840_pca10090 board.
+Configure the sample (located under ``samples/hello_world``) for the nrf9160dk_nrf52840 board.
 All configuration options can be found under **Board configuration** in menuconfig.
-See :ref:`zephyr:nrf52840_pca10090` for detailed information about the board.
+See :ref:`zephyr:nrf9160dk_nrf52840` for detailed information about the board.
 
 Available drivers, libraries, and samples
-=========================================
+*****************************************
 
-Currently the following drivers, libraries, and samples can be used to develop and test
-applications on the nRF9160 SiP.
-
-Drivers
-*******
-
-LTE Link Control
-	The **LTE Link Control** driver offers convenience API
-	for managing the LTE link using AT commands over an AT-command BSD socket.
-	The driver source files are located in :file:`drivers/lte_link_control`.
-
-Libraries
-*********
-
-nRF Cloud
-	The **nRF Cloud** library enables applications to connect to
-	Nordic Semiconductor’s `nRF Cloud`_.
-	For details, see :ref:`lib_nrf_cloud`.
-
-AT host
-	The **AT host** library handles string termination on raw string input
-	and passes these strings over to an AT command BSD socket.
-	The library source files are located in :file:`lib/at_host`.
-
-BSD Socket
-	The **BSD Socket** binary library provides the main interface to the
-	IP stack and the LTE modem.
-	It provides sockets for UDP, TCP, DTLS, TLS, and AT commands.
-	Additionally, the library offers extension API where you can manage keys
-	for later use in secure connections.
-	The library source files are located in :file:`lib/bsdlib`.
-
-GPS simulator
-	The **GPS simulator** simulates a simple GPS device providing NMEA strings
-	with generated data that can be accessed through the GPS API.
-	The driver source files are located in :file:`drivers/gps_sim`.
-
-Sensor simulator
-	The **Sensor simulator** simulates a sensor device that can be accessed
-	through the sensor API.
-	It is currently supporting the acceleration channels in the API.
-	The driver source files are located in :file:`drivers/sensor/sensor_sim`.
-
-Samples
-*******
-
-Secure Partition Manager
-	The **Secure Partition Manager** sample provides a reference implementation
-	of a first-stage boot firmware.
-	It must be preflashed to the board before any other sample.
-	For details, see :ref:`secure_partition_manager`.
-
-Asset Tracker
-	The **Asset Tracker** sample is a comprehensive application that demonstrates
-	how to use the nRF Cloud library to connect an nRF9160 DK to
-	the `nRF Cloud`_ through LTE, and transmit GPS and device orientation data.
-	For details, see :ref:`asset_tracker`.
-
-LTE Sensor Gateway
-	The **LTE Sensor Gateway** sample demonstrates how to transmit sensor data
-	that is collected via Bluetooth LE from an nRF9160 DK to the `nRF Cloud`_.
-	For details, see :ref:`lte_sensor_gateway`.
-
-AT Client
-	The **AT Client** sample is used to send AT commands over UART to the nRF9160
-	modem and read responses or events.
-	You can send AT commands using a terminal or using the `LTE Link Monitor`_ application.
-	The sample source files are located in :file:`samples/nrf9160/at_client`.
+See the :ref:`drivers`, :ref:`libraries`, and :ref:`nRF9160 samples <nrf9160_samples>` sections and the respective repository folders for up-to-date information.

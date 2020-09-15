@@ -738,7 +738,7 @@ WARN_FORMAT            = "$file:$line: $text"
 # messages should be written. If left blank the output is written to standard
 # error (stderr).
 
-WARN_LOGFILE           = nrfxlib_warnings.txt
+WARN_LOGFILE           =
 
 #---------------------------------------------------------------------------
 # Configuration options related to the input files
@@ -802,7 +802,7 @@ EXCLUDE_SYMLINKS       = NO
 # Note that the wildcards are matched against the file with absolute path, so to
 # exclude all test directories for example use the pattern */test/*
 
-EXCLUDE_PATTERNS       =
+EXCLUDE_PATTERNS       = */zboss/* */openthread/include/*
 
 # The EXCLUDE_SYMBOLS tag can be used to specify one or more symbol names
 # (namespaces, classes, functions, etc.) that should be excluded from the
@@ -1016,7 +1016,7 @@ IGNORE_PREFIX          =
 # If the GENERATE_HTML tag is set to YES, doxygen will generate HTML output
 # The default value is: YES.
 
-GENERATE_HTML          = YES
+GENERATE_HTML          = NO
 
 # The HTML_OUTPUT tag is used to specify where the HTML docs will be put. If a
 # relative path is entered the value of OUTPUT_DIRECTORY will be put in front of
@@ -1962,10 +1962,11 @@ PREDEFINED             = "MBEDTLS_CONFIG_FILE=\"@NRFXLIB_BINARY_DIR@/mbedtls_dox
                          "NET_MGMT_DEFINE_REQUEST_HANDLER(x)=" \
                          "DEVICE_DEFINE()=" \
                          "DEVICE_AND_API_INIT()=" \
-                         "BUILD_ASSERT_MSG()=" \
+                         "BUILD_ASSERT()=" \
                          "BUILD_ASSERT()=" \
                          "__deprecated=" \
                          "__PACKED_STRUCT=struct" \
+                         "__PACKED_UNION=union" \
                          "__packed=" \
                          "__aligned(x)=" \
                          "__printf_like(x, y)=" \

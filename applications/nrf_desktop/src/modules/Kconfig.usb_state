@@ -10,7 +10,7 @@ menu "USB state"
 
 config DESKTOP_USB_ENABLE
 	bool "Enable USB module"
-	default n
+	depends on USB_DEVICE_HID
 	help
 	  Enables USB module.
 

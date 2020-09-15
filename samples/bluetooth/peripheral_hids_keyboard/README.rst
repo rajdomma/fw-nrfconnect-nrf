@@ -38,9 +38,10 @@ Requirements
 
 * One of the following development boards:
 
-  * nRF52840 Development Kit board (PCA10056)
-  * nRF52 Development Kit board (PCA10040)
-  * nRF51 Development Kit board (PCA10028) (with the `NFC_OOB_PAIRING` option disabled)
+  * |nRF5340DK|
+  * |nRF52840DK|
+  * |nRF52DK|
+  * |nRF51DK| (with the `NFC_OOB_PAIRING` option disabled)
 
 If the `NFC_OOB_PAIRING` feature is enabled:
 
@@ -70,11 +71,11 @@ LED 3:
 
 If the `NFC_OOB_PAIRING` feature is enabled:
 
-LED 4:
-   Indicates if an NFC field is present.
-
 Button 4:
    Starts advertising.
+
+LED 4:
+   Indicates if an NFC field is present.
 
 
 Building and running
@@ -191,10 +192,10 @@ When the `NFC_OOB_PAIRING` feature is enabled, it also uses the Type 2 Tag libra
 The sample uses the following Zephyr libraries:
 
 * ``include/zephyr/types.h``
-* ``include/misc/printk.h``
-* ``include/misc/byteorder.h``
+* ``include/sys/printk.h``
+* ``include/sys/byteorder.h``
 * :ref:`GPIO Interface <zephyr:api_peripherals>`
-* :ref:`zephyr:settings`
+* :ref:`zephyr:settings_api`
 * :ref:`zephyr:bluetooth_api`:
 
   * ``include/bluetooth/bluetooth.h``

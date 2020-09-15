@@ -24,17 +24,17 @@ config MAX_LENGTH_OF_CUSTOM_EVENTS_DESCRIPTIONS
 
 choice
 	prompt "Profiler selection"
-	default PROFILER_SYSVIEW
+	default PROFILER_NORDIC
 	depends on PROFILER
 
 config PROFILER_SYSVIEW
 	bool "SysView profiler"
-	select RTT_CONSOLE
-	select SEGGER_SYSTEMVIEW
+	select USE_SEGGER_RTT
+	depends on SEGGER_SYSTEMVIEW
 
 config PROFILER_NORDIC
 	bool "Nordic profiler"
-	select RTT_CONSOLE
+	select USE_SEGGER_RTT
 
 endchoice
 
@@ -56,7 +56,7 @@ config PROFILER_NORDIC_DATA_BUFFER_SIZE
 
 config PROFILER_NORDIC_INFO_BUFFER_SIZE
 	int "Info buffer size"
-	default 1024
+	default 256
 
 config PROFILER_NORDIC_RTT_CHANNEL_DATA
 	int "Data up channel index"

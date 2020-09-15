@@ -1,27 +1,24 @@
-.. _fn_keys:
+.. _nrf_desktop_fn_keys:
 
-Fn keys module
-##############
+Function key module
+####################
 
-The ``fn_keys`` module applies Fn key modifier to activate special functions assigned to dual-purpose keys.
+The Function key module applies the Fn key modifier to activate special functions assigned to dual-purpose keys.
 
-Module Events
+Module events
 *************
 
-+----------------+------------------+--------------+------------------+------------------------------------+
-| Source Module  | Input Event      | This Module  | Output Event     | Sink Module                        |
-+================+==================+==============+==================+====================================+
-| :ref:`buttons` | ``button_event`` | ``fn_keys``  | ``button_event`` | :ref:`click_detector`              |
-|                |                  |              |                  +------------------------------------+
-|                |                  |              |                  | :ref:`motion` (``motion_buttons``) |
-|                |                  |              |                  +------------------------------------+
-|                |                  |              |                  | :ref:`hid_state`                   |
-+----------------+------------------+--------------+------------------+------------------------------------+
+.. include:: event_propagation.rst
+    :start-after: table_fn_keys_start
+    :end-before: table_fn_keys_end
+
+.. note::
+    |nrf_desktop_module_event_note|
 
 Configuration
 *************
 
-The module uses ``button_event`` sent by :ref:`buttons`.
+The module uses ``button_event`` sent by :ref:`nrf_desktop_buttons`.
 Make sure mentioned hardware interface is defined.
 
 The module is enabled with ``CONFIG_DESKTOP_FN_KEYS_ENABLE`` option.
@@ -30,10 +27,11 @@ You must configure the following options:
 
 * ``CONFIG_DESKTOP_FN_KEYS_SWITCH`` - Fn key button.
 * ``CONFIG_DESKTOP_FN_KEYS_LOCK`` - Fn lock button.
-* ``CONFIG_DESKTOP_STORE_FN_LOCK`` - option for defining if the device should store the Fn lock state after reboot (set by default to storing the state).
-* ``CONFIG_DESKTOP_FN_KEYS_MAX_ACTIVE`` - maximum number of dual-purpose keys pressed at the same time (8 by default). The module remembers the pressed keys to send proper key releases.
+* ``CONFIG_DESKTOP_STORE_FN_LOCK`` - Option for defining if the device should store the Fn lock state after reboot (set by default to storing the state).
+* ``CONFIG_DESKTOP_FN_KEYS_MAX_ACTIVE`` - Maximum number of dual-purpose keys pressed at the same time (8 by default).
+  The module remembers the pressed keys to send proper key releases.
 
-In the file ``fn_keys_def.h``, define all the dual-purpose keys.
+In the file :file:`fn_keys_def.h``, define all the dual-purpose keys.
 The ``fn_keys`` array must be sorted by key ID (the module uses binary search).
 
 Implementation details

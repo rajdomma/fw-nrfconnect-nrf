@@ -7,7 +7,7 @@
 #ifndef NRF_CLOUD_TRANSPORT_H__
 #define NRF_CLOUD_TRANSPORT_H__
 
-#include <nrf_cloud.h>
+#include <net/nrf_cloud.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,9 +18,9 @@ enum nct_evt_type {
 	NCT_EVT_CC_CONNECTED,
 	NCT_EVT_DC_CONNECTED,
 	NCT_EVT_CC_RX_DATA,
-	NCT_EVT_CC_TX_DATA_CNF,
+	NCT_EVT_CC_TX_DATA_ACK,
 	NCT_EVT_DC_RX_DATA,
-	NCT_EVT_DC_TX_DATA_CNF,
+	NCT_EVT_DC_TX_DATA_ACK,
 	NCT_EVT_CC_DISCONNECTED,
 	NCT_EVT_DC_DISCONNECTED,
 	NCT_EVT_DISCONNECTED,
@@ -36,21 +36,24 @@ enum nct_cc_opcode {
 
 struct nct_dc_data {
 	struct nrf_cloud_data data;
-	u32_t id;
+	struct nrf_cloud_topic topic;
+	uint32_t id;
 };
 
 struct nct_cc_data {
 	struct nrf_cloud_data data;
-	u32_t id;
+	struct nrf_cloud_topic topic;
+	uint32_t id;
 	enum nct_cc_opcode opcode;
 };
 
 struct nct_evt {
-	u32_t status;
+	int32_t status;
 	union {
 		struct nct_cc_data *cc;
 		struct nct_dc_data *dc;
-		u32_t data_id;
+		uint32_t data_id;
+		uint8_t flag;
 	} param;
 	enum nct_evt_type type;
 };
@@ -74,12 +77,12 @@ int nct_dc_connect(void);
 int nct_cc_send(const struct nct_cc_data *cc);
 
 /**@brief Sends data on the data channel. Reliable, should expect a @ref
- * NCT_EVT_DC_TX_DATA_CNF event.
+ * NCT_EVT_DC_TX_DATA_ACK event.
  */
 int nct_dc_send(const struct nct_dc_data *dc);
 
 /**@brief Stream data on the data channel. Unreliable, no @ref
- * NCT_EVT_DC_TX_DATA_CNF event is generated.
+ * NCT_EVT_DC_TX_DATA_ACK event is generated.
  */
 int nct_dc_stream(const struct nct_dc_data *dc);
 
@@ -111,8 +114,17 @@ void nct_dc_endpoint_get(struct nrf_cloud_data *tx_endpoint,
 /**@brief Needed for keep alive. */
 void nct_process(void);
 
+/**
+ * @brief Helper function to determine when next keep alive message should be
+ *        sent. Can be used for instance as a source for `poll` timeout.
+ */
+int nct_keepalive_time_left(void);
+
 /**@brief Input from the cloud module. */
 int nct_input(const struct nct_evt *evt);
+
+/**@brief Signal to apply FOTA update. */
+void nct_apply_update(void);
 
 #ifdef __cplusplus
 }

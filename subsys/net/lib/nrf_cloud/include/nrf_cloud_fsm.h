@@ -7,13 +7,12 @@
 #ifndef NRF_CLOUD_FSM_H__
 #define NRF_CLOUD_FSM_H__
 
-#include <nrf_cloud.h>
+#include <net/nrf_cloud.h>
 #include "nrf_cloud_transport.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 
 /**@brief Internal state identifiers. */
 enum nfsm_state {
@@ -25,11 +24,6 @@ enum nfsm_state {
 	STATE_CLOUD_STATE_REQUESTED,
 	STATE_UA_PIN_WAIT,
 	STATE_UA_PIN_COMPLETE,
-	STATE_UA_INITIATE,
-	STATE_UA_INPUT_WAIT,
-	STATE_UA_INPUT_MISMATCH,
-	STATE_UA_INPUT_TIMEOUT,
-	STATE_UA_COMPLETE,
 	STATE_DC_CONNECTING,
 	STATE_DC_CONNECTED,
 	STATE_READY,

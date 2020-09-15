@@ -6,7 +6,7 @@
 
 #include <zephyr.h>
 #include <debug/ppi_trace.h>
-#include <counter.h>
+#include <drivers/counter.h>
 #include <hal/nrf_rtc.h>
 #include <hal/nrf_clock.h>
 #include <device.h>
@@ -16,16 +16,15 @@ LOG_MODULE_REGISTER(app);
 
 #define ALARM_PERIOD_US 50000
 
-#define RTC COND_CODE_1(CONFIG_USE_RTC2, (NRF_RTC2), (NRF_RTC0))
+#if IS_ENABLED(CONFIG_USE_RTC2)
+#define RTC       NRF_RTC2
+#define RTC_LABEL DT_LABEL(DT_NODELABEL(rtc2))
+#else
+#define RTC       NRF_RTC0
+#define RTC_LABEL DT_LABEL(DT_NODELABEL(rtc0))
+#endif
 
-#define RTC_LABEL \
-	COND_CODE_1( \
-		CONFIG_USE_RTC2, \
-		(DT_NORDIC_NRF_RTC_RTC_2_LABEL), \
-		(DT_NORDIC_NRF_RTC_RTC_0_LABEL) \
-	)
-
-static void alarm_callback(struct device *dev, u8_t chan_id, u32_t ticks,
+static void alarm_callback(struct device *dev, uint8_t chan_id, uint32_t ticks,
 			   void *user_data);
 
 static struct counter_alarm_cfg alarm_cfg = {
@@ -35,7 +34,7 @@ static struct counter_alarm_cfg alarm_cfg = {
 
 extern void bluetooth_enable(void);
 
-static void ppi_trace_pin_setup(u32_t pin, u32_t evt)
+static void ppi_trace_pin_setup(uint32_t pin, uint32_t evt)
 {
 	void *handle;
 
@@ -48,11 +47,8 @@ static void ppi_trace_pin_setup(u32_t pin, u32_t evt)
 
 static void ppi_trace_setup(void)
 {
-	/* chan_id=0 maps to COMPARE_1, COMPARE_0 is internally used by the
-	 * driver.
-	 */
 	ppi_trace_pin_setup(CONFIG_PPI_TRACE_PIN_RTC_COMPARE_EVT,
-		nrf_rtc_event_address_get(RTC, NRF_RTC_EVENT_COMPARE_1));
+		nrf_rtc_event_address_get(RTC, NRF_RTC_EVENT_COMPARE_0));
 
 	/* Due to low power domain events must be explicitly enabled in RTC. */
 	nrf_rtc_event_enable(RTC, NRF_RTC_INT_TICK_MASK);
@@ -60,16 +56,17 @@ static void ppi_trace_setup(void)
 		nrf_rtc_event_address_get(RTC, NRF_RTC_EVENT_TICK));
 
 	ppi_trace_pin_setup(CONFIG_PPI_TRACE_PIN_LFCLOCK_STARTED_EVT,
-		nrf_clock_event_address_get(NRF_CLOCK_EVENT_LFCLKSTARTED));
+		nrf_clock_event_address_get(NRF_CLOCK,
+					    NRF_CLOCK_EVENT_LFCLKSTARTED));
 
 	LOG_INF("PPI trace setup done.");
 }
 
-static void alarm_callback(struct device *dev, u8_t chan_id, u32_t ticks,
+static void alarm_callback(struct device *dev, uint8_t chan_id, uint32_t ticks,
 			   void *user_data)
 {
 	int err;
-	u32_t alarm_cnt = (u32_t)user_data + 1;
+	uint32_t alarm_cnt = (uint32_t)user_data + 1;
 
 	alarm_cfg.ticks = ticks + counter_us_to_ticks(dev, ALARM_PERIOD_US);
 	alarm_cfg.user_data = (void *)alarm_cnt;

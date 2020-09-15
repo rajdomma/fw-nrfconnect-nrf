@@ -5,3 +5,4 @@
 #
 
 rsource "ppi_trace/Kconfig"
+rsource "cpu_load/Kconfig"

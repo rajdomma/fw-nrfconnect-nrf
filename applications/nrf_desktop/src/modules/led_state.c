@@ -22,15 +22,16 @@ LOG_MODULE_REGISTER(MODULE, CONFIG_DESKTOP_LED_STATE_LOG_LEVEL);
 
 static enum led_system_state system_state = LED_SYSTEM_STATE_IDLE;
 
-static bool connected;
+static uint8_t connected;
+static bool peer_search;
 static enum peer_operation peer_op = PEER_OPERATION_CANCEL;
-static u8_t cur_peer_id;
+static uint8_t cur_peer_id;
 
 
 static void load_peer_state_led(void)
 {
 	enum led_peer_state state = LED_PEER_STATE_DISCONNECTED;
-	u8_t peer_id = cur_peer_id;
+	uint8_t peer_id = cur_peer_id;
 
 	switch (peer_op) {
 	case PEER_OPERATION_SELECT:
@@ -46,7 +47,10 @@ static void load_peer_state_led(void)
 	case PEER_OPERATION_ERASE_ADV_CANCEL:
 	case PEER_OPERATION_ERASED:
 	case PEER_OPERATION_CANCEL:
-		if (connected) {
+	case PEER_OPERATION_SCAN_REQUEST:
+		if (peer_search) {
+			state = LED_PEER_STATE_PEER_SEARCH;
+		} else if (connected > 0) {
 			state = LED_PEER_STATE_CONNECTED;
 		}
 		break;
@@ -58,6 +62,9 @@ static void load_peer_state_led(void)
 	if (led_map[LED_ID_PEER_STATE] == LED_UNAVAILABLE) {
 		return;
 	}
+
+	__ASSERT_NO_MSG(peer_id < LED_PEER_COUNT);
+	__ASSERT_NO_MSG(state < LED_PEER_STATE_COUNT);
 
 	struct led_event *event = new_led_event();
 
@@ -97,18 +104,31 @@ static bool event_handler(const struct event_header *eh)
 		switch (event->state)  {
 		case PEER_STATE_SECURED:
 		case PEER_STATE_CONNECTED:
-			connected = true;
+			__ASSERT_NO_MSG(connected < UINT8_MAX);
+			connected++;
 			break;
 		case PEER_STATE_DISCONNECTED:
-			connected = false;
+			__ASSERT_NO_MSG(connected > 0);
+			connected--;
 			break;
 		case PEER_STATE_CONN_FAILED:
+		case PEER_STATE_DISCONNECTING:
 			/* Ignore */
 			break;
 		default:
 			__ASSERT_NO_MSG(false);
 			break;
 		}
+		load_peer_state_led();
+
+		return false;
+	}
+
+	if (is_ble_peer_search_event(eh)) {
+		struct ble_peer_search_event *event =
+			cast_ble_peer_search_event(eh);
+
+		peer_search = event->active;
 		load_peer_state_led();
 
 		return false;
@@ -166,5 +186,6 @@ static bool event_handler(const struct event_header *eh)
 EVENT_LISTENER(MODULE, event_handler);
 EVENT_SUBSCRIBE(MODULE, module_state_event);
 EVENT_SUBSCRIBE(MODULE, ble_peer_event);
+EVENT_SUBSCRIBE(MODULE, ble_peer_search_event);
 EVENT_SUBSCRIBE(MODULE, ble_peer_operation_event);
 EVENT_SUBSCRIBE(MODULE, battery_state_event);

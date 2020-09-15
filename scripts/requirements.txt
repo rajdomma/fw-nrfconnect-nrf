@@ -1,7 +1,7 @@
-recommonmark==0.4.0
-sphinxcontrib-mscgen>=0.5
 ecdsa
+imagesize>=1.2.0
 intelhex
-nrfutil
-pygit2>=0.26.0
-editdistance>=0.5.0
+recommonmark==0.4.0
+sphinxcontrib-mscgen
+west>=0.7.2
+pylint

@@ -11,6 +11,9 @@ target_sources(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_bond.c)
 target_sources_ifdef(CONFIG_BT_PERIPHERAL
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_latency.c)
 
+target_sources_ifdef(CONFIG_BT_CENTRAL
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_conn_params.c)
+
 target_sources_ifdef(CONFIG_DESKTOP_BLE_ADVERTISING_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_adv.c)
 
@@ -20,10 +23,16 @@ target_sources_ifdef(CONFIG_DESKTOP_BLE_DISCOVERY_ENABLE
 target_sources_ifdef(CONFIG_DESKTOP_BLE_SCANNING_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_scan.c)
 
-target_sources_ifdef(CONFIG_DESKTOP_CONFIG_ENABLE
-		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/config.c)
+target_sources_ifdef(CONFIG_DESKTOP_BLE_QOS_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_qos.c)
 
-target_sources_ifdef(CONFIG_DESKTOP_BLE_SCANNING_ENABLE
+target_sources_ifdef(CONFIG_SETTINGS
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/settings_loader.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_CONFIG_CHANNEL_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/info.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_HID_FORWARD_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hid_forward.c)
 
 target_sources_ifdef(CONFIG_DESKTOP_HID_STATE_ENABLE
@@ -41,9 +50,6 @@ target_sources_ifdef(CONFIG_DESKTOP_LED_STREAM_ENABLE
 target_sources_ifdef(CONFIG_DESKTOP_POWER_MANAGER_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/power_manager.c)
 
-target_sources_ifdef(CONFIG_DESKTOP_SHELL_ENABLE
-		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/shell.c)
-
 target_sources_ifdef(CONFIG_DESKTOP_CONFIG_CHANNEL_DFU_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/dfu.c)
 
@@ -56,5 +62,29 @@ target_sources_ifdef(CONFIG_DESKTOP_WATCHDOG_ENABLE
 target_sources_ifdef(CONFIG_DESKTOP_BAS_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/bas.c)
 
+target_sources_ifdef(CONFIG_DESKTOP_QOS_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/qos.c)
+
+target_sources_ifdef(CONFIG_BT_PERIPHERAL
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/dev_descr.c)
+
 target_sources_ifdef(CONFIG_DESKTOP_HIDS_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hids.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_HFCLK_LOCK_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hfclk_lock.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_CONSTLAT_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/constlat.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_FAILSAFE_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/failsafe.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_CPU_MEAS_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cpu_meas.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_SMP_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/smp.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_PROFILER_SYNC_GPIO_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/profiler_sync.c)

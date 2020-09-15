@@ -22,13 +22,17 @@ Flipping the Thingy:52, which causes a change in the flip state to "UPSIDE_DOWN"
 Requirements
 ************
 
-* A `Nordic Thingy:52`_
-* The following development board:
+The sample supports the following development kit:
 
-  * nRF9160 DK board (PCA10090)
+.. include:: /includes/boardname_tables/sample_boardnames.txt
+   :start-after: set5_start
+   :end-before: set5_end
 
-* :ref:`zephyr:bluetooth-hci-uart-sample` must be programmed to the nRF52 board controller on the board.
-* .. include:: /includes/spm.txt
+Additionally, the sample requires a `Nordic Thingy:52`_.
+
+The :ref:`zephyr:bluetooth-hci-uart-sample` sample must be programmed to the nRF52 board controller on the board.
+
+.. include:: /includes/spm.txt
 
 User interface
 **************
@@ -56,14 +60,14 @@ The first port is connected to the main controller (nRF9160) on the board, while
 Before you program the sample application onto the main controller, you must program the :ref:`zephyr:bluetooth-hci-uart-sample` sample onto the board controller:
 
 1. Put the **SW5** switch (marked debug/prog) in the **NRF52** position to program the board controller.
-#. Build the :ref:`zephyr:bluetooth-hci-uart-sample` sample for the nrf52840_pca10090 board and program it.
+#. Build the :ref:`zephyr:bluetooth-hci-uart-sample` sample for the nrf9160dk_nrf52840 build target and program it.
 #. Verify that the sample was programmed successfully by connecting to the second serial port with a terminal emulator (for example, PuTTY) and checking the output.
    See :ref:`putty` for the required settings.
 
 After programming the board controller, you must program the LTE Sensor Gateway sample (which includes the :ref:`secure_partition_manager` sample) to the main controller:
 
 1. Put the **SW5** switch (marked debug/prog) in the **NRF91** position to program the main controller.
-#. Build the LTE Sensor Gateway sample (this sample) for the nrf9160_pca10090ns board and program it.
+#. Build the LTE Sensor Gateway sample (this sample) for the nrf9160dk_nrf9160ns build target and program it.
 #. Verify that the sample was programmed successfully by connecting to the first serial port with a terminal emulator (for example, PuTTY) and checking the output.
    See :ref:`putty` for the required settings.
 

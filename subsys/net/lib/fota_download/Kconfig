@@ -11,6 +11,13 @@ menuconfig FOTA_DOWNLOAD
 
 if (FOTA_DOWNLOAD)
 
+config FOTA_SOCKET_RETRIES
+	int "Number of retries for socket-related download issues"
+	default 2
+
+config FOTA_DOWNLOAD_PROGRESS_EVT
+	bool "Emit progress event upon receiving a download fragment"
+
 module=FOTA_DOWNLOAD
 module-dep=LOG
 module-str=Firmware Over the Air Download

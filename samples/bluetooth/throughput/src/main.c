@@ -5,12 +5,14 @@
  */
 
 #include <kernel.h>
-#include <console.h>
-#include <misc/printk.h>
+#include <console/console.h>
+#include <sys/printk.h>
 #include <string.h>
+#include <stdlib.h>
 #include <zephyr/types.h>
 
 #include <bluetooth/bluetooth.h>
+#include <bluetooth/crypto.h>
 #include <bluetooth/conn.h>
 #include <bluetooth/gatt.h>
 #include <bluetooth/hci.h>
@@ -78,14 +80,20 @@ void scan_connecting_error(struct bt_scan_device_info *device_info)
 BT_SCAN_CB_INIT(scan_cb, scan_filter_match, scan_filter_no_match,
 		scan_connecting_error, NULL);
 
-static void exchange_func(struct bt_conn *conn, u8_t err,
+static void exchange_func(struct bt_conn *conn, uint8_t att_err,
 			  struct bt_gatt_exchange_params *params)
 {
 	struct bt_conn_info info = {0};
+	int err;
 
-	printk("MTU exchange %s\n", err == 0 ? "successful" : "failed");
+	printk("MTU exchange %s\n", att_err == 0 ? "successful" : "failed");
 
 	err = bt_conn_get_info(conn, &info);
+	if (err) {
+		printk("Failed to get connection info %d\n", err);
+		return;
+	}
+
 	if (info.role == BT_CONN_ROLE_MASTER) {
 		test_ready = true;
 	}
@@ -132,28 +140,38 @@ struct bt_gatt_dm_cb discovery_cb = {
 	.error_found       = discovery_error,
 };
 
-static void connected(struct bt_conn *conn, u8_t err)
+static void connected(struct bt_conn *conn, uint8_t hci_err)
 {
 	struct bt_conn_info info = {0};
+	int err;
 
-	if (err) {
-		printk("Connection failed (err %u)\n", err);
+	if (hci_err) {
+		if (hci_err == BT_HCI_ERR_UNKNOWN_CONN_ID) {
+			/* Canceled creating connection */
+			return;
+		}
+
+		printk("Connection failed (err 0x%02x)\n", hci_err);
+		return;
+	}
+
+	if (default_conn) {
+		printk("Connection exists, disconnect second connection\n");
+		bt_conn_disconnect(conn, BT_HCI_ERR_LOCALHOST_TERM_CONN);
 		return;
 	}
 
 	default_conn = bt_conn_ref(conn);
+
 	err = bt_conn_get_info(default_conn, &info);
 	if (err) {
-		printk("Error %u while getting bt conn info\n", err);
+		printk("Failed to get connection info %d\n", err);
+		return;
 	}
 
 	printk("Connected as %s\n",
 	       info.role == BT_CONN_ROLE_MASTER ? "master" : "slave");
 	printk("Conn. interval is %u units\n", info.le.interval);
-
-	/* make sure we're not scanning or advertising */
-	bt_le_adv_stop();
-	bt_scan_stop();
 
 	if (info.role == BT_CONN_ROLE_MASTER) {
 		err = bt_gatt_dm_start(default_conn,
@@ -199,42 +217,63 @@ static void scan_init(void)
 	}
 }
 
-static void advertise_and_scan(void)
+static void scan_start(void)
 {
 	int err;
-
-	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd,
-			     ARRAY_SIZE(sd));
-	if (err) {
-		printk("Advertising failed to start (err %d)\n", err);
-		return;
-	}
-
-	printk("Advertising successfully started\n");
 
 	err = bt_scan_start(BT_SCAN_TYPE_SCAN_PASSIVE);
 	if (err) {
 		printk("Starting scanning failed (err %d)\n", err);
+		return;
 	}
-
-	printk("Scanning successfully started\n");
 }
 
-static void disconnected(struct bt_conn *conn, u8_t reason)
+static void adv_start(void)
 {
-	printk("Disconnected (reason %u)\n", reason);
+	struct bt_le_adv_param *adv_param =
+		BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONNECTABLE |
+				BT_LE_ADV_OPT_ONE_TIME,
+				BT_GAP_ADV_FAST_INT_MIN_2,
+				BT_GAP_ADV_FAST_INT_MAX_2,
+				NULL);
+	int err;
+
+	err = bt_le_adv_start(adv_param, ad, ARRAY_SIZE(ad), sd,
+			      ARRAY_SIZE(sd));
+	if (err) {
+		printk("Failed to start advertiser (%d)\n", err);
+		return;
+	}
+}
+
+static void disconnected(struct bt_conn *conn, uint8_t reason)
+{
+	struct bt_conn_info info = {0};
+	int err;
+
+	printk("Disconnected (reason 0x%02x)\n", reason);
 
 	test_ready = false;
-
 	if (default_conn) {
 		bt_conn_unref(default_conn);
 		default_conn = NULL;
 	}
 
-	advertise_and_scan();
+	err = bt_conn_get_info(conn, &info);
+	if (err) {
+		printk("Failed to get connection info (%d)\n", err);
+		return;
+	}
+
+	/* Re-connect using same roles */
+	if (info.role == BT_CONN_ROLE_MASTER) {
+		scan_start();
+	} else {
+		adv_start();
+	}
 }
 
-static u8_t throughput_read(const struct bt_gatt_throughput_metrics *met)
+static uint8_t throughput_read(const struct bt_gatt_throughput_metrics *met)
 {
 	printk("[peer] received %u bytes (%u KB)"
 	       " in %u GATT writes at %u bps\n",
@@ -248,7 +287,7 @@ static u8_t throughput_read(const struct bt_gatt_throughput_metrics *met)
 
 static void throughput_received(const struct bt_gatt_throughput_metrics *met)
 {
-	static u32_t kb;
+	static uint32_t kb;
 
 	if (met->write_len == 0) {
 		kb = 0;
@@ -277,32 +316,13 @@ static const struct bt_gatt_throughput_cb throughput_cb = {
 	.data_send = throughput_send
 };
 
-static void bt_ready(int err)
-{
-	if (err) {
-		printk("Bluetooth init failed (err %d)\n", err);
-		return;
-	}
-
-	printk("Bluetooth initialized\n");
-
-	scan_init();
-	bt_gatt_throughput_init(&gatt_throughput, &throughput_cb);
-	if (err) {
-		printk("Throughput service initialization failed.\n");
-		return;
-	}
-
-	advertise_and_scan();
-}
-
 static void test_run(void)
 {
 	int err;
-	u64_t stamp;
-	u32_t delta;
-	u32_t data = 0;
-	u32_t prog = 0;
+	uint64_t stamp;
+	int64_t delta;
+	uint32_t data = 0;
+	uint32_t prog = 0;
 
 	/* a dummy data buffer */
 	static char dummy[256];
@@ -342,11 +362,11 @@ static void test_run(void)
 		prog++;
 	}
 
-	delta = k_uptime_delta_32(&stamp);
+	delta = k_uptime_delta(&stamp);
 
 	printk("\nDone\n");
-	printk("[local] sent %u bytes (%u KB) in %u ms at %llu kbps\n",
-	       data, data / 1024, delta, ((u64_t)data * 8 / delta));
+	printk("[local] sent %u bytes (%u KB) in %lld ms at %llu kbps\n",
+	       data, data / 1024, delta, ((uint64_t)data * 8 / delta));
 
 	/* read back char from peer */
 	err = bt_gatt_throughput_read(&gatt_throughput);
@@ -361,6 +381,30 @@ static bool le_param_req(struct bt_conn *conn, struct bt_le_conn_param *param)
 	return false;
 }
 
+static void device_role_select(void)
+{
+	char role;
+
+	while (true) {
+		printk("Choose device role - type s (slave role) or m (master role): ");
+
+		role = console_getchar();
+		printk("\n");
+
+		if (role == 's') {
+			printk("Slave role. Starting advertising\n");
+			adv_start();
+			break;
+		} else if (role == 'm') {
+			printk("Master role. Starting scanning\n");
+			scan_start();
+			break;
+		}
+
+		printk("Invalid role\n");
+	}
+}
+
 void main(void)
 {
 	int err;
@@ -371,15 +415,29 @@ void main(void)
 	    .le_param_req = le_param_req,
 	};
 
+	printk("Starting Bluetooth Throughput example\n");
+
 	console_init();
 
-	err = bt_enable(bt_ready);
+	bt_conn_cb_register(&conn_callbacks);
+
+	err = bt_enable(NULL);
 	if (err) {
 		printk("Bluetooth init failed (err %d)\n", err);
 		return;
 	}
 
-	bt_conn_cb_register(&conn_callbacks);
+	printk("Bluetooth initialized\n");
+
+	scan_init();
+
+	err = bt_gatt_throughput_init(&gatt_throughput, &throughput_cb);
+	if (err) {
+		printk("Throughput service initialization failed.\n");
+		return;
+	}
+
+	device_role_select();
 
 	for (;;) {
 		if (test_ready) {

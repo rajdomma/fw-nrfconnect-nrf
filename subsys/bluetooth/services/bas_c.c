@@ -29,17 +29,17 @@ LOG_MODULE_REGISTER(bas_c, CONFIG_BT_GATT_BAS_C_LOG_LEVEL);
  * @retval BT_GATT_ITER_STOP     Stop notification
  * @retval BT_GATT_ITER_CONTINUE Continue notification
  */
-static u8_t notify_process(struct bt_conn *conn,
+static uint8_t notify_process(struct bt_conn *conn,
 			   struct bt_gatt_subscribe_params *params,
-			   const void *data, u16_t length)
+			   const void *data, uint16_t length)
 {
 	struct bt_gatt_bas_c *bas_c;
-	u8_t battery_level;
-	const u8_t *bdata = data;
+	uint8_t battery_level;
+	const uint8_t *bdata = data;
 
 	bas_c = CONTAINER_OF(params, struct bt_gatt_bas_c, notify_params);
 	if (!data || !length) {
-		LOG_ERR("NULL notification received.");
+		LOG_INF("Notifications disabled.");
 		if (bas_c->notify_cb) {
 			bas_c->notify_cb(bas_c, BT_GATT_BAS_VAL_INVALID);
 		}
@@ -84,13 +84,13 @@ static u8_t notify_process(struct bt_conn *conn,
  * @retval BT_GATT_ITER_STOP     Stop notification
  * @retval BT_GATT_ITER_CONTINUE Continue notification
  */
-static u8_t read_process(struct bt_conn *conn, u8_t err,
+static uint8_t read_process(struct bt_conn *conn, uint8_t err,
 			     struct bt_gatt_read_params *params,
-			     const void *data, u16_t length)
+			     const void *data, uint16_t length)
 {
 	struct bt_gatt_bas_c *bas_c;
-	u8_t battery_level = BT_GATT_BAS_VAL_INVALID;
-	const u8_t *bdata = data;
+	uint8_t battery_level = BT_GATT_BAS_VAL_INVALID;
+	const uint8_t *bdata = data;
 
 	bas_c = CONTAINER_OF(params, struct bt_gatt_bas_c, read_params);
 
@@ -133,13 +133,13 @@ static u8_t read_process(struct bt_conn *conn, u8_t err,
  * @retval BT_GATT_ITER_STOP     Stop notification
  * @retval BT_GATT_ITER_CONTINUE Continue notification
  */
-static u8_t periodic_read_process(struct bt_conn *conn, u8_t err,
+static uint8_t periodic_read_process(struct bt_conn *conn, uint8_t err,
 				  struct bt_gatt_read_params *params,
-				  const void *data, u16_t length)
+				  const void *data, uint16_t length)
 {
 	struct bt_gatt_bas_c *bas_c;
-	u8_t battery_level = BT_GATT_BAS_VAL_INVALID;
-	const u8_t *bdata = data;
+	uint8_t battery_level = BT_GATT_BAS_VAL_INVALID;
+	const uint8_t *bdata = data;
 
 	bas_c = CONTAINER_OF(params, struct bt_gatt_bas_c,
 			periodic_read.params);
@@ -165,7 +165,8 @@ static u8_t periodic_read_process(struct bt_conn *conn, u8_t err,
 	if (atomic_test_bit(&bas_c->periodic_read.process,
 			    BAS_PERIODIC_READ_PROC_BIT)) {
 		k_delayed_work_submit(&bas_c->periodic_read.read_work,
-				      atomic_get(&bas_c->periodic_read.interval));
+				      K_MSEC(atomic_get(
+					&bas_c->periodic_read.interval)));
 	}
 
 	return BT_GATT_ITER_STOP;
@@ -237,12 +238,12 @@ void bt_gatt_bas_c_init(struct bt_gatt_bas_c *bas_c)
 int bt_gatt_bas_c_handles_assign(struct bt_gatt_dm *dm,
 				 struct bt_gatt_bas_c *bas_c)
 {
-	const struct bt_gatt_attr *gatt_service_attr =
+	const struct bt_gatt_dm_attr *gatt_service_attr =
 			bt_gatt_dm_service_get(dm);
 	const struct bt_gatt_service_val *gatt_service =
 			bt_gatt_dm_attr_service_val(gatt_service_attr);
-	const struct bt_gatt_attr *gatt_chrc;
-	const struct bt_gatt_attr *gatt_desc;
+	const struct bt_gatt_dm_attr *gatt_chrc;
+	const struct bt_gatt_dm_attr *gatt_desc;
 	const struct bt_gatt_chrc *chrc_val;
 
 	if (bt_uuid_cmp(gatt_service->uuid, BT_UUID_BAS)) {
@@ -311,7 +312,8 @@ int bt_gatt_bas_c_subscribe(struct bt_gatt_bas_c *bas_c,
 	bas_c->notify_params.value = BT_GATT_CCC_NOTIFY;
 	bas_c->notify_params.value_handle = bas_c->val_handle;
 	bas_c->notify_params.ccc_handle = bas_c->ccc_handle;
-	atomic_set(bas_c->notify_params.flags, BT_GATT_SUBSCRIBE_FLAG_VOLATILE);
+	atomic_set_bit(bas_c->notify_params.flags,
+		       BT_GATT_SUBSCRIBE_FLAG_VOLATILE);
 
 	LOG_DBG("Subscribe: val: %u, ccc: %u",
 		bas_c->notify_params.value_handle,
@@ -335,11 +337,12 @@ int bt_gatt_bas_c_unsubscribe(struct bt_gatt_bas_c *bas_c)
 		return -EINVAL;
 	}
 
-	if (!bas_c->notify_params.notify) {
+	if (!bas_c->notify_cb) {
 		return -EFAULT;
 	}
+
 	err = bt_gatt_unsubscribe(bas_c->conn, &bas_c->notify_params);
-	bas_c->notify_params.notify = NULL;
+	bas_c->notify_cb = NULL;
 	return err;
 }
 
@@ -388,7 +391,7 @@ int bt_gatt_bas_c_get(struct bt_gatt_bas_c *bas_c)
 
 
 int bt_gatt_bas_c_periodic_read_start(struct bt_gatt_bas_c *bas_c,
-				      s32_t interval,
+				      int32_t interval,
 				      bt_gatt_bas_c_notify_cb func)
 {
 	if (!bas_c || !func) {
@@ -405,7 +408,7 @@ int bt_gatt_bas_c_periodic_read_start(struct bt_gatt_bas_c *bas_c,
 	if (!atomic_test_and_set_bit(&bas_c->periodic_read.process,
 				     BAS_PERIODIC_READ_PROC_BIT)) {
 		k_delayed_work_submit(&bas_c->periodic_read.read_work,
-				      interval);
+				      K_MSEC(interval));
 	}
 
 	return 0;

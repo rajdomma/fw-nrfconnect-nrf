@@ -13,7 +13,7 @@
 #include <inttypes.h>
 #include <errno.h>
 #include <zephyr.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/hci.h>
@@ -32,7 +32,7 @@
  */
 #define KEY_READVAL_MASK DK_BTN1_MSK
 
-#define BAS_READ_VALUE_INTERVAL K_SECONDS(10)
+#define BAS_READ_VALUE_INTERVAL (10 * MSEC_PER_SEC)
 
 
 static struct bt_conn *default_conn;
@@ -40,25 +40,19 @@ static struct bt_gatt_bas_c bas_c;
 
 
 static void bas_c_notify_cb(struct bt_gatt_bas_c *bas_c,
-				    u8_t battery_level);
+				    uint8_t battery_level);
 
 
 static void scan_filter_match(struct bt_scan_device_info *device_info,
 			      struct bt_scan_filter_match *filter_match,
 			      bool connectable)
 {
-	int err;
 	char addr[BT_ADDR_LE_STR_LEN];
 
 	bt_addr_le_to_str(device_info->addr, addr, sizeof(addr));
 
 	printk("Filters matched. Address: %s connectable: %s\n",
 		addr, connectable ? "yes" : "no");
-
-	err = bt_scan_stop();
-	if (err) {
-		printk("Stop LE scan failed (err %d)\n", err);
-	}
 }
 
 static void scan_connecting_error(struct bt_scan_device_info *device_info)
@@ -72,7 +66,30 @@ static void scan_connecting(struct bt_scan_device_info *device_info,
 	default_conn = bt_conn_ref(conn);
 }
 
-BT_SCAN_CB_INIT(scan_cb, scan_filter_match, NULL,
+static void scan_filter_no_match(struct bt_scan_device_info *device_info,
+				 bool connectable)
+{
+	int err;
+	struct bt_conn *conn;
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	if (device_info->adv_info.adv_type == BT_GAP_ADV_TYPE_ADV_DIRECT_IND) {
+		bt_addr_le_to_str(device_info->addr, addr, sizeof(addr));
+		printk("Direct advertising received from %s\n", addr);
+		bt_scan_stop();
+
+		err = bt_conn_le_create(device_info->addr,
+					BT_CONN_LE_CREATE_CONN,
+					device_info->conn_param, &conn);
+
+		if (!err) {
+			default_conn = bt_conn_ref(conn);
+			bt_conn_unref(conn);
+		}
+	}
+}
+
+BT_SCAN_CB_INIT(scan_cb, scan_filter_match, scan_filter_no_match,
 		scan_connecting_error, scan_connecting);
 
 static void discovery_completed_cb(struct bt_gatt_dm *dm,
@@ -146,7 +163,7 @@ static void gatt_discover(struct bt_conn *conn)
 	}
 }
 
-static void connected(struct bt_conn *conn, u8_t conn_err)
+static void connected(struct bt_conn *conn, uint8_t conn_err)
 {
 	int err;
 	char addr[BT_ADDR_LE_STR_LEN];
@@ -155,6 +172,18 @@ static void connected(struct bt_conn *conn, u8_t conn_err)
 
 	if (conn_err) {
 		printk("Failed to connect to %s (%u)\n", addr, conn_err);
+		if (conn == default_conn) {
+			bt_conn_unref(default_conn);
+			default_conn = NULL;
+
+			/* This demo doesn't require active scan */
+			err = bt_scan_start(BT_SCAN_TYPE_SCAN_ACTIVE);
+			if (err) {
+				printk("Scanning failed to start (err %d)\n",
+				       err);
+			}
+		}
+
 		return;
 	}
 
@@ -168,7 +197,7 @@ static void connected(struct bt_conn *conn, u8_t conn_err)
 	}
 }
 
-static void disconnected(struct bt_conn *conn, u8_t reason)
+static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 	int err;
@@ -241,7 +270,7 @@ static void scan_init(void)
 }
 
 static void bas_c_notify_cb(struct bt_gatt_bas_c *bas_c,
-				    u8_t battery_level)
+				    uint8_t battery_level)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 
@@ -256,7 +285,7 @@ static void bas_c_notify_cb(struct bt_gatt_bas_c *bas_c,
 }
 
 static void bas_c_read_cb(struct bt_gatt_bas_c *bas_c,
-				  u8_t battery_level,
+				  uint8_t battery_level,
 				  int err)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
@@ -282,9 +311,9 @@ static void button_readval(void)
 }
 
 
-static void button_handler(u32_t button_state, u32_t has_changed)
+static void button_handler(uint32_t button_state, uint32_t has_changed)
 {
-	u32_t button = button_state & has_changed;
+	uint32_t button = button_state & has_changed;
 
 	if (button & KEY_READVAL_MASK) {
 		button_readval();
@@ -345,6 +374,8 @@ static struct bt_conn_auth_cb conn_auth_callbacks = {
 void main(void)
 {
 	int err;
+
+	printk("Starting Bluetooth Central BAS example\n");
 
 	bt_gatt_bas_c_init(&bas_c);
 

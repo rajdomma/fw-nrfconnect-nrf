@@ -7,14 +7,14 @@
 #include <zephyr.h>
 #include <stdio.h>
 #include <string.h>
-#include <gps.h>
-#include <sensor.h>
-#include <console.h>
-#include <nrf_cloud.h>
+#include <drivers/gps.h>
+#include <drivers/sensor.h>
+#include <console/console.h>
+#include <net/nrf_cloud.h>
 #include <dk_buttons_and_leds.h>
-#include <lte_lc.h>
-#include <misc/reboot.h>
-#include <net/bsdlib.h>
+#include <modem/lte_lc.h>
+#include <power/reboot.h>
+#include <modem/bsdlib.h>
 
 #include "aggregator.h"
 #include "ble.h"
@@ -22,58 +22,59 @@
 #include "alarm.h"
 
 /* Interval in milliseconds between each time status LEDs are updated. */
-#define LEDS_UPDATE_INTERVAL	        500
+#define LEDS_UPDATE_INTERVAL K_MSEC(500)
 
 /* Interval in microseconds between each time LEDs are updated when indicating
  * that an error has occurred.
  */
-#define LEDS_ERROR_UPDATE_INTERVAL      250000
+#define LEDS_ERROR_UPDATE_INTERVAL 250000
 
-#define BUTTON_1			BIT(0)
-#define BUTTON_2			BIT(1)
-#define SWITCH_1			BIT(2)
-#define SWITCH_2			BIT(3)
+#define BUTTON_1 BIT(0)
+#define BUTTON_2 BIT(1)
+#define SWITCH_1 BIT(2)
+#define SWITCH_2 BIT(3)
 
 #define LED_ON(x)			(x)
-#define LED_BLINK(x)			((x) << 8)
-#define LED_GET_ON(x)			((x) & 0xFF)
-#define LED_GET_BLINK(x)		(((x) >> 8) & 0xFF)
+#define LED_BLINK(x)		((x) << 8)
+#define LED_GET_ON(x)		((x) & 0xFF)
+#define LED_GET_BLINK(x)	(((x) >> 8) & 0xFF)
+
+/* Interval in milliseconds after the device will retry cloud connection
+ * if the event NRF_CLOUD_EVT_TRANSPORT_CONNECTED is not received.
+ */
+#define RETRY_CONNECT_WAIT K_MSEC(90000)
 
 enum {
-	LEDS_INITIALIZING     = LED_ON(0),
-	LEDS_CONNECTING       = LED_BLINK(DK_LED3_MSK),
-	LEDS_PATTERN_WAIT     = LED_BLINK(DK_LED3_MSK | DK_LED4_MSK),
-	LEDS_PATTERN_ENTRY    = LED_ON(DK_LED3_MSK) | LED_BLINK(DK_LED4_MSK),
-	LEDS_PATTERN_DONE     = LED_BLINK(DK_LED4_MSK),
-	LEDS_PAIRED           = LED_ON(DK_LED4_MSK),
-	LEDS_ERROR            = LED_ON(DK_ALL_LEDS_MSK)
+	LEDS_INITIALIZING       = LED_ON(0),
+	LEDS_LTE_CONNECTING     = LED_BLINK(DK_LED3_MSK),
+	LEDS_LTE_CONNECTED      = LED_ON(DK_LED3_MSK),
+	LEDS_CLOUD_CONNECTING   = LED_BLINK(DK_LED4_MSK),
+	LEDS_CLOUD_PAIRING_WAIT = LED_BLINK(DK_LED3_MSK | DK_LED4_MSK),
+	LEDS_CLOUD_CONNECTED    = LED_ON(DK_LED4_MSK),
+	LEDS_ERROR              = LED_ON(DK_ALL_LEDS_MSK)
 } display_state;
 
- /* Variables to keep track of nRF cloud user association. */
-static u8_t ua_pattern[10];
-static int buttons_to_capture;
-static int buttons_captured;
-static bool pattern_recording;
-static struct k_sem user_assoc_sem;
+/* Variable to keep track of nRF cloud user association request. */
+static atomic_val_t association_requested;
 
 /* Sensor data */
-static struct gps_data gps_data;
+static struct gps_nmea gps_nmea_data;
 static struct nrf_cloud_sensor_data gps_cloud_data = {
 	.type = NRF_CLOUD_SENSOR_GPS,
 	.tag = 0x1,
-	.data.ptr = gps_data.nmea.buf,
+	.data.ptr = gps_nmea_data.buf,
 	.data.len = GPS_NMEA_SENTENCE_MAX_LENGTH,
 };
 static atomic_val_t send_data_enable;
 
 /* Structures for work */
 static struct k_delayed_work leds_update_work;
+static struct k_delayed_work retry_connect_work;
 static struct k_work connect_work;
 
 enum error_type {
 	ERROR_NRF_CLOUD,
 	ERROR_BSD_RECOVERABLE,
-	ERROR_BSD_IRRECOVERABLE
 };
 
 /* Forward declaration of functions */
@@ -99,7 +100,7 @@ void error_handler(enum error_type err_type, int err)
 #if !defined(CONFIG_DEBUG)
 	sys_reboot(SYS_REBOOT_COLD);
 #else
-	u8_t led_pattern;
+	uint8_t led_pattern;
 
 	switch (err_type) {
 	case ERROR_NRF_CLOUD:
@@ -115,13 +116,6 @@ void error_handler(enum error_type err_type, int err)
 		 */
 		led_pattern = DK_LED1_MSK | DK_LED3_MSK;
 		printk("Error of type ERROR_BSD_RECOVERABLE: %d\n", err);
-		break;
-	case ERROR_BSD_IRRECOVERABLE:
-		/* Blinking all LEDs ON/OFF if there is an
-		 * irrecoverable error.
-		 */
-		led_pattern = DK_ALL_LEDS_MSK;
-		printk("Error of type ERROR_BSD_IRRECOVERABLE: %d\n", err);
 		break;
 	default:
 		/* Blinking all LEDs ON/OFF in pairs (1 and 2, 3 and 4)
@@ -151,46 +145,57 @@ void bsd_recoverable_error_handler(uint32_t err)
 	error_handler(ERROR_BSD_RECOVERABLE, (int)err);
 }
 
-/**@brief Irrecoverable BSD library error. */
-void bsd_irrecoverable_error_handler(uint32_t err)
+/**@brief Callback for GPS events */
+static void gps_handler(struct device *dev, struct gps_event *evt)
 {
-	error_handler(ERROR_BSD_IRRECOVERABLE, (int)err);
-}
+	uint32_t button_state, has_changed;
+	struct sensor_data in_data = {
+		.type = GPS_POSITION,
+		.length = evt->nmea.len,
+	};
 
-/**@brief Callback for GPS trigger events */
-static void gps_trigger_handler(struct device *dev, struct gps_trigger *trigger)
-{
-	ARG_UNUSED(trigger);
+	ARG_UNUSED(dev);
 
-	u32_t button_state, has_changed;
+	switch (evt->type) {
+	case GPS_EVT_SEARCH_STARTED:
+		printk("GPS_EVT_SEARCH_STARTED\n");
+		return;
+	case GPS_EVT_SEARCH_STOPPED:
+		printk("GPS_EVT_SEARCH_STOPPED\n");
+		return;
+	case GPS_EVT_SEARCH_TIMEOUT:
+		printk("GPS_EVT_SEARCH_TIMEOUT\n");
+		return;
+	case GPS_EVT_PVT_FIX:
+		printk("GPS_EVT_PVT_FIX\n");
+		return;
+	case GPS_EVT_NMEA_FIX:
+		printk("GPS_EVT_NMEA_FIX\n");
+		break;
+	default:
+		return;
+	}
 
 	dk_read_buttons(&button_state, &has_changed);
 
-	if (!(button_state & SWITCH_2) && atomic_get(&send_data_enable)) {
-		gps_sample_fetch(dev);
-		gps_channel_get(dev, GPS_CHAN_NMEA, &gps_data);
+	if ((button_state & SWITCH_2) || !atomic_get(&send_data_enable)) {
+		return;
+	}
 
-		gps_cloud_data.tag++;
+	gps_cloud_data.tag++;
 
-		if (gps_cloud_data.tag == 0) {
-			gps_cloud_data.tag = 0x1;
-		}
+	if (gps_cloud_data.tag == 0) {
+		gps_cloud_data.tag = 0x1;
+	}
 
-		struct sensor_data in_data = {
-			.type = GPS_POSITION,
-			.length = gps_cloud_data.data.len,
-		};
+	memcpy(&in_data.data[0], &gps_cloud_data.tag,
+		sizeof(gps_cloud_data.tag));
 
-		memcpy(&in_data.data[0], &gps_cloud_data.tag,
-		       sizeof(gps_cloud_data.tag));
+	memcpy(&in_data.data[sizeof(gps_cloud_data.tag)],
+		evt->nmea.buf, evt->nmea.len);
 
-		memcpy(&in_data.data[sizeof(gps_cloud_data.tag)],
-		gps_cloud_data.data.ptr,
-		       gps_cloud_data.data.len);
-
-		if (aggregator_put(in_data) != 0) {
-			printk("Failed to store GPS data.\n");
-		}
+	if (aggregator_put(in_data) != 0) {
+		printk("Failed to store GPS data.\n");
 	}
 }
 
@@ -198,8 +203,8 @@ static void gps_trigger_handler(struct device *dev, struct gps_trigger *trigger)
 static void leds_update(struct k_work *work)
 {
 	static bool led_on;
-	static u8_t current_led_on_mask;
-	u8_t led_on_mask = current_led_on_mask;
+	static uint8_t current_led_on_mask;
+	uint8_t led_on_mask = current_led_on_mask;
 
 	ARG_UNUSED(work);
 
@@ -229,7 +234,7 @@ void sensor_data_send(struct nrf_cloud_sensor_data *data)
 {
 	int err;
 
-	if (pattern_recording || !atomic_get(&send_data_enable)) {
+	if (!atomic_get(&send_data_enable)) {
 		return;
 	}
 
@@ -245,24 +250,36 @@ void sensor_data_send(struct nrf_cloud_sensor_data *data)
 	}
 }
 
-/**@brief Callback for user association event received from nRF Cloud. */
-static void on_user_association_req(const struct nrf_cloud_evt *evt)
+static void on_cloud_evt_user_association_request(void)
 {
-	if (!pattern_recording) {
-		k_sem_init(&user_assoc_sem, 0, 1);
-		display_state = LEDS_PATTERN_WAIT;
-		pattern_recording = true;
-		buttons_captured = 0;
-		buttons_to_capture = evt->param.ua_req.sequence.len;
+	if (atomic_get(&association_requested) == 0) {
+		atomic_set(&association_requested, 1);
+		printk("Add device to cloud account.\n");
+		printk("Waiting for cloud association...\n");
+	}
+}
 
-		printk("Please enter the user association pattern");
+static void on_cloud_evt_user_associated(void)
+{
+	int err;
 
-		if (IS_ENABLED(CONFIG_CLOUD_UA_BUTTONS)) {
-			printk(" using the buttons and switches\n");
-		} else if (IS_ENABLED(CONFIG_CLOUD_UA_CONSOLE)) {
-			printk(" using the console\n");
+	if (atomic_get(&association_requested)) {
+		atomic_set(&association_requested, 0);
+
+		/* after successful association, the device must
+		 * reconnect to aws.
+		 */
+		printk("Device associated with cloud.\n");
+		printk("Reconnecting for settings to take effect.\n");
+		printk("Disconnecting from cloud...\n");
+
+		err = nrf_cloud_disconnect();
+
+		if (err == 0) {
+			return;
 		} else {
-			printk(". No valid assosiation pattern input found.\n");
+			printk("Disconnect failed, rebooting...\n");
+			nrf_cloud_error_handler(err);
 		}
 	}
 }
@@ -275,17 +292,20 @@ static void cloud_event_handler(const struct nrf_cloud_evt *evt)
 	switch (evt->type) {
 	case NRF_CLOUD_EVT_TRANSPORT_CONNECTED:
 		printk("NRF_CLOUD_EVT_TRANSPORT_CONNECTED\n");
+		k_delayed_work_cancel(&retry_connect_work);
 		break;
 	case NRF_CLOUD_EVT_USER_ASSOCIATION_REQUEST:
 		printk("NRF_CLOUD_EVT_USER_ASSOCIATION_REQUEST\n");
-		on_user_association_req(evt);
+		display_state = LEDS_CLOUD_PAIRING_WAIT;
+		on_cloud_evt_user_association_request();
 		break;
 	case NRF_CLOUD_EVT_USER_ASSOCIATED:
 		printk("NRF_CLOUD_EVT_USER_ASSOCIATED\n");
+		on_cloud_evt_user_associated();
 		break;
 	case NRF_CLOUD_EVT_READY:
 		printk("NRF_CLOUD_EVT_READY\n");
-		display_state = LEDS_PAIRED;
+		display_state = LEDS_CLOUD_CONNECTED;
 		struct nrf_cloud_sa_param param = {
 			.sensor_type = NRF_CLOUD_SENSOR_FLIP,
 		};
@@ -353,148 +373,43 @@ static void cloud_connect(struct k_work *work)
 
 	ARG_UNUSED(work);
 
-	const enum nrf_cloud_ua supported_uas[] = {
-		NRF_CLOUD_UA_BUTTON
-	};
-
 	const enum nrf_cloud_sensor supported_sensors[] = {
-		NRF_CLOUD_SENSOR_GPS,
-		NRF_CLOUD_SENSOR_FLIP
-	};
-
-	const struct nrf_cloud_ua_list ua_list = {
-		.size = ARRAY_SIZE(supported_uas),
-		.ptr = supported_uas
+		NRF_CLOUD_SENSOR_GPS, NRF_CLOUD_SENSOR_FLIP
 	};
 
 	const struct nrf_cloud_sensor_list sensor_list = {
-		.size = ARRAY_SIZE(supported_sensors),
-		.ptr = supported_sensors
+		.size = ARRAY_SIZE(supported_sensors), .ptr = supported_sensors
 	};
 
 	const struct nrf_cloud_connect_param param = {
-		.ua = &ua_list,
 		.sensor = &sensor_list,
 	};
 
-	display_state = LEDS_CONNECTING;
 	err = nrf_cloud_connect(&param);
 
 	if (err) {
 		printk("nrf_cloud_connect failed: %d\n", err);
 		nrf_cloud_error_handler(err);
 	}
-}
 
-/**@brief Send user association information to nRF Cloud. */
-static void cloud_user_associate(void)
-{
-	int err;
-	const struct nrf_cloud_ua_param ua = {
-		.type = NRF_CLOUD_UA_BUTTON,
-		.sequence = {
-			.len = buttons_to_capture,
-			.ptr = ua_pattern
-		}
-	};
-
-	err = nrf_cloud_user_associate(&ua);
-
-	if (err) {
-		printk("nrf_cloud_user_associate failed: %d\n", err);
-		nrf_cloud_error_handler(err);
-	}
-}
-
-/**@brief Function to keep track of user association input when using
- * buttons and switches to register the association pattern.
- */
-static void pairing_button_register(u32_t button_state, u32_t has_changed)
-{
-	if (buttons_captured < buttons_to_capture) {
-		if (display_state == LEDS_PATTERN_WAIT)	{
-			display_state = LEDS_PATTERN_ENTRY;
-		}
-
-		if (button_state & has_changed & BUTTON_1) {
-			ua_pattern[buttons_captured++] =
-				NRF_CLOUD_UA_BUTTON_INPUT_3;
-			printk("Button 1\n");
-		} else if (button_state & has_changed & BUTTON_2) {
-			ua_pattern[buttons_captured++] =
-				NRF_CLOUD_UA_BUTTON_INPUT_4;
-			printk("Button 2\n");
-		} else if (has_changed & SWITCH_1) {
-			ua_pattern[buttons_captured++] =
-				NRF_CLOUD_UA_BUTTON_INPUT_1;
-			printk("Switch 1\n");
-		} else if (has_changed & SWITCH_2) {
-			ua_pattern[buttons_captured++] =
-				NRF_CLOUD_UA_BUTTON_INPUT_2;
-			printk("Switch 2\n");
-		}
-	}
-
-	if (buttons_captured == buttons_to_capture) {
-		display_state = LEDS_PATTERN_DONE;
-		k_sem_give(&user_assoc_sem);
-	}
+	display_state = LEDS_CLOUD_CONNECTING;
+	k_delayed_work_submit(&retry_connect_work, RETRY_CONNECT_WAIT);
 }
 
 /**@brief Callback for button events from the DK buttons and LEDs library. */
-static void button_handler(u32_t buttons, u32_t has_changed)
+static void button_handler(uint32_t buttons, uint32_t has_changed)
 {
-	if (pattern_recording && IS_ENABLED(CONFIG_CLOUD_UA_BUTTONS)) {
-		pairing_button_register(buttons, has_changed);
-		return;
-	}
-}
-
-/**@brief Processing of user inputs to the application. */
-static void input_process(void)
-{
-	if (!pattern_recording) {
-		return;
-	}
-
-	if (k_sem_take(&user_assoc_sem, K_NO_WAIT) == 0) {
-		cloud_user_associate();
-		pattern_recording = false;
-		return;
-	}
-
-	if (!IS_ENABLED(CONFIG_CLOUD_UA_CONSOLE)) {
-		return;
-	}
-
-	u8_t c[2];
-
-	c[0] = console_getchar();
-	c[1] = console_getchar();
-
-	if (c[0] == 'b' && c[1] == '1') {
-		printk("Button 1\n");
-		ua_pattern[buttons_captured++] = NRF_CLOUD_UA_BUTTON_INPUT_3;
-	} else if (c[0] == 'b' && c[1] == '2') {
-		printk("Button 2\n");
-		ua_pattern[buttons_captured++] = NRF_CLOUD_UA_BUTTON_INPUT_4;
-	} else if (c[0] == 's' && c[1] == '1') {
-		printk("Switch 1\n");
-		ua_pattern[buttons_captured++] = NRF_CLOUD_UA_BUTTON_INPUT_1;
-	} else if (c[0] == 's' && c[1] == '2') {
-		printk("Switch 2\n");
-		ua_pattern[buttons_captured++] = NRF_CLOUD_UA_BUTTON_INPUT_2;
-	}
-
-	if (buttons_captured == buttons_to_capture) {
-		k_sem_give(&user_assoc_sem);
-	}
+	printk("button_handler: button 1: %u, button 2: %u "
+	       "switch 1: %u, switch 2: %u\n",
+	       (bool)(buttons & BUTTON_1), (bool)(buttons & BUTTON_2),
+	       (bool)(buttons & SWITCH_1), (bool)(buttons & SWITCH_2));
 }
 
 /**@brief Initializes and submits delayed work. */
 static void work_init(void)
 {
 	k_delayed_work_init(&leds_update_work, leds_update);
+	k_delayed_work_init(&retry_connect_work, cloud_connect);
 	k_work_init(&connect_work, cloud_connect);
 	k_delayed_work_submit(&leds_update_work, LEDS_UPDATE_INTERVAL);
 }
@@ -504,54 +419,52 @@ static void work_init(void)
  */
 static void modem_configure(void)
 {
+	display_state = LEDS_LTE_CONNECTING;
+
 	if (IS_ENABLED(CONFIG_LTE_AUTO_INIT_AND_CONNECT)) {
 		/* Do nothing, modem is already turned on and connected. */
 	} else {
 		int err;
 
 		printk("Establishing LTE link (this may take some time) ...\n");
-		display_state = LEDS_CONNECTING;
 		err = lte_lc_init_and_connect();
 		__ASSERT(err == 0, "LTE link could not be established.");
+		display_state = LEDS_LTE_CONNECTED;
 	}
 }
 
-/**@brief Initializes GPS device and configures trigger if set.
- * Gets initial sample from GPS device.
- */
-static void gps_init(void)
+/**@brief Initializes the sensors that are used by the application. */
+static void sensors_init(void)
 {
 	int err;
 	struct device *gps_dev = device_get_binding(CONFIG_GPS_DEV_NAME);
-	struct gps_trigger gps_trig = {
-		.type = GPS_TRIG_DATA_READY,
+	struct gps_config gps_cfg = {
+		.nav_mode = GPS_NAV_MODE_PERIODIC,
+		.interval = CONFIG_GPS_SEARCH_INTERVAL,
+		.timeout = CONFIG_GPS_SEARCH_TIMEOUT,
 	};
 
 	if (gps_dev == NULL) {
 		printk("Could not get %s device\n", CONFIG_GPS_DEV_NAME);
 		return;
 	}
-	printk("GPS device found\n");
 
-	if (IS_ENABLED(CONFIG_GPS_TRIGGER)) {
-		err = gps_trigger_set(gps_dev, &gps_trig, gps_trigger_handler);
-		if (err) {
-			printk("Could not set trigger, error code: %d\n", err);
-			return;
-		}
+	err = gps_init(gps_dev, gps_handler);
+	if (err) {
+		printk("Could not initialize GPS, error: %d\n", err);
+		return;
 	}
 
-	err = gps_sample_fetch(gps_dev);
-	__ASSERT(err == 0, "GPS sample could not be fetched.");
+	printk("GPS initialized\n");
 
-	err = gps_channel_get(gps_dev, GPS_CHAN_NMEA, &gps_data);
-	__ASSERT(err == 0, "GPS sample could not be retrieved.");
-}
+	err = gps_start(gps_dev, &gps_cfg);
+	if (err) {
+		printk("Failed to start GPS, error: %d\n", err);
+		return;
+	}
 
-/**@brief Initializes the sensors that are used by the application. */
-static void sensors_init(void)
-{
-	gps_init();
+	printk("GPS started with interval %d seconds, and timeout %d seconds\n",
+	       CONFIG_GPS_SEARCH_INTERVAL, CONFIG_GPS_SEARCH_TIMEOUT);
 }
 
 /**@brief Initializes buttons and LEDs, using the DK buttons and LEDs
@@ -579,7 +492,7 @@ static void buttons_leds_init(void)
 
 void main(void)
 {
-	printk("Application started\n");
+	printk("LTE Sensor Gateway sample started\n");
 
 	buttons_leds_init();
 	ble_init();
@@ -589,13 +502,8 @@ void main(void)
 	modem_configure();
 	cloud_connect(NULL);
 
-	if (IS_ENABLED(CONFIG_CLOUD_UA_CONSOLE)) {
-		console_init();
-	}
-
 	while (true) {
 		nrf_cloud_process();
-		input_process();
 		send_aggregated_data();
 		k_sleep(K_MSEC(10));
 		k_cpu_idle();

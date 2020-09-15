@@ -30,10 +30,25 @@ extern "C" {
  * @brief FOTA download event IDs.
  */
 enum fota_download_evt_id {
+	/** FOTA download progress report. */
+	FOTA_DOWNLOAD_EVT_PROGRESS,
 	/** FOTA download finished. */
 	FOTA_DOWNLOAD_EVT_FINISHED,
+	/** FOTA download erase pending. */
+	FOTA_DOWNLOAD_EVT_ERASE_PENDING,
+	/** FOTA download erase done. */
+	FOTA_DOWNLOAD_EVT_ERASE_DONE,
 	/** FOTA download error. */
 	FOTA_DOWNLOAD_EVT_ERROR,
+};
+
+/**
+ * @brief FOTA download event data.
+ */
+struct fota_download_evt {
+	enum fota_download_evt_id id;
+	/** Download progress % */
+	int progress;
 };
 
 /**
@@ -42,7 +57,7 @@ enum fota_download_evt_id {
  * @param event_id Event ID.
  *
  */
-typedef void (*fota_download_callback_t)(enum fota_download_evt_id evt_id);
+typedef void (*fota_download_callback_t)(const struct fota_download_evt *evt);
 
 /**@brief Initialize the firmware over-the-air download library.
  *
@@ -58,11 +73,20 @@ int fota_download_init(fota_download_callback_t client_callback);
  * When the download is complete, the secondary slot of MCUboot is tagged as having
  * valid firmware inside it. The completion is reported through an event.
  *
+ * @param host Name of host to start downloading from. Can include scheme
+ *             and port number, e.g. https://google.com:443
+ * @param file Filepath to the file you wish to download.
+ * @param sec_tag Security tag you want to use with HTTPS set to -1 to Disable.
+ * @param apn Access Point Name to use or NULL to use the default APN.
+ * @param fragment_size Fragment size to be used for the download.
+ *			If 0, CONFIG_DOWNLOAD_CLIENT_HTTP_FRAG_SIZE is used.
+ *
  * @retval 0	     If download has started successfully.
  * @retval -EALREADY If download is already ongoing.
  *                   Otherwise, a negative value is returned.
  */
-int fota_download_start(char *host, char *file);
+int fota_download_start(const char *host, const char *file, int sec_tag,
+			const char *apn, size_t fragment_size);
 
 #ifdef __cplusplus
 }

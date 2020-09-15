@@ -9,7 +9,7 @@
  * @{
  * @brief BT Scanning module
  *
- * @details The Scanning Module handles the BLE scanning for
+ * @details The Scanning Module handles the Bluetooth LE scanning for
  *          your application. The module offers several criteria
  *          for filtering the devices available for connection,
  *          and it can also work in the simple mode without using the filtering.
@@ -26,7 +26,7 @@
 #define BT_SCAN_H_
 
 #include <zephyr/types.h>
-#include <misc/slist.h>
+#include <sys/slist.h>
 #include <bluetooth/hci.h>
 #include <bluetooth/uuid.h>
 #include <bluetooth/conn.h>
@@ -105,7 +105,7 @@ struct bt_scan_filter_info {
 	bool enabled;
 
 	/** Filter count. */
-	u8_t cnt;
+	uint8_t cnt;
 };
 
 /**@brief Filter status structure.
@@ -136,13 +136,13 @@ struct bt_filter_status {
 /**@brief Advertising info structure.
  */
 struct bt_scan_adv_info {
-	/** BLE advertising type. According to
-	 * Bluetooth Specification 7.8.5
+	/** Bluetooth LE advertising type. According to
+	 *  Bluetooth Specification 7.8.5
 	 */
-	u8_t adv_type;
+	uint8_t adv_type;
 
 	/** Received Signal Strength Indication in dBm. */
-	s8_t rssi;
+	int8_t rssi;
 };
 
 /**@brief A helper structure to set filters for the name.
@@ -152,17 +152,17 @@ struct bt_scan_short_name {
 	const char *name;
 
 	/** Minimum length of the short name. */
-	u8_t min_len;
+	uint8_t min_len;
 };
 
 /**@brief A helper structure to set filters for the manufacturer data.
  */
 struct bt_scan_manufacturer_data {
 	/** Pointer to the manufacturer data. */
-	u8_t *data;
+	uint8_t *data;
 
 	/** Manufacturer data length. */
-	u8_t data_len;
+	uint8_t data_len;
 };
 
 /**@brief Structure for Scanning Module initialization.
@@ -196,7 +196,7 @@ struct bt_scan_name_filter_status {
 	const char *name;
 
 	/** Length of the matched name. */
-	u8_t len;
+	uint8_t len;
 };
 
 /**@brief Address filter status structure, used to inform the application
@@ -221,7 +221,7 @@ struct bt_scan_uuid_filter_status {
 	const struct bt_uuid *uuid[CONFIG_BT_SCAN_UUID_CNT];
 
 	/** Matched UUID count. */
-	u8_t count;
+	uint8_t count;
 };
 
 /**@brief Appearance filter status structure, used to inform the application
@@ -232,7 +232,7 @@ struct bt_scan_appearance_filter_status {
 	bool match;
 
 	/** Pointer to the matched filter appearance. */
-	const u16_t *appearance;
+	const uint16_t *appearance;
 };
 
 /**@brief Manufacturer data filter status structure, used to inform the
@@ -243,10 +243,10 @@ struct bt_scan_manufacturer_data_filter_status {
 	bool match;
 
 	/** Pointer to the matched filter manufacturer data. */
-	const u8_t *data;
+	const uint8_t *data;
 
 	/** Length of the matched manufacturer data. */
-	u8_t len;
+	uint8_t len;
 };
 
 /**@brief Structure for setting the filter status.
@@ -285,11 +285,18 @@ struct bt_scan_device_info {
 	/** Information about advertising. */
 	struct bt_scan_adv_info adv_info;
 
-	/** Pointer to device BLE address. */
+	/** Pointer to device LE address. */
 	const bt_addr_le_t *addr;
 
 	/** Connection parameters for LE connection. */
 	const struct bt_le_conn_param *conn_param;
+
+	/** Received advertising data. If further
+	 *  data proccesing is needed, you should
+	 *  use @em bt_data_parse() to get specific
+	 *  advertising data type.
+	 */
+	struct net_buf_simple *adv_data;
 };
 
 /** @brief Initializing macro for scanning module.
@@ -418,6 +425,14 @@ int bt_scan_start(enum bt_scan_type scan_type);
  */
 int bt_scan_stop(void);
 
+/**@brief Function to update initial connection parameters.
+ *
+ * @note The function should not be used when scanning is active.
+ *
+ * @param[in] new_conn_param New initial connection parameters.
+ */
+void bt_scan_update_init_conn_params(struct bt_le_conn_param *new_conn_param);
+
 #if CONFIG_BT_SCAN_FILTER_ENABLE
 
 /**@brief Function for enabling filtering.
@@ -430,7 +445,7 @@ int bt_scan_stop(void);
  * @param[in] mode Filter mode: @ref BT_SCAN_FILTER_MODE.
  * @param[in] match_all If this flag is set, all types of enabled filters
  *                      must be matched before generating
- *                      @ref BT_SCAN_EVT_FILTER_MATCH to the main
+ *                      @em BT_SCAN_EVT_FILTER_MATCH to the main
  *                      application. Otherwise, it is enough to
  *                      match one filter to trigger the filter match event.
  *
@@ -438,7 +453,7 @@ int bt_scan_stop(void);
  *	     code is returned.
  *
  */
-int bt_scan_filter_enable(u8_t mode, bool match_all);
+int bt_scan_filter_enable(uint8_t mode, bool match_all);
 
 /**@brief Function for disabling filtering.
  *

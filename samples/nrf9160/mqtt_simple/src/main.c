@@ -6,20 +6,25 @@
 
 #include <zephyr.h>
 #include <stdio.h>
-#include <uart.h>
+#include <drivers/uart.h>
 #include <string.h>
-
+#include <random/rand32.h>
 #include <net/mqtt.h>
 #include <net/socket.h>
-#include <lte_lc.h>
+#include <modem/lte_lc.h>
+#if defined(CONFIG_MODEM_KEY_MGMT)
+#include <modem/modem_key_mgmt.h>
+#endif
 #if defined(CONFIG_LWM2M_CARRIER)
 #include <lwm2m_carrier.h>
 #endif
 
+#include "certificates.h"
+
 /* Buffers for MQTT client. */
-static u8_t rx_buffer[CONFIG_MQTT_MESSAGE_BUFFER_SIZE];
-static u8_t tx_buffer[CONFIG_MQTT_MESSAGE_BUFFER_SIZE];
-static u8_t payload_buf[CONFIG_MQTT_PAYLOAD_BUFFER_SIZE];
+static uint8_t rx_buffer[CONFIG_MQTT_MESSAGE_BUFFER_SIZE];
+static uint8_t tx_buffer[CONFIG_MQTT_MESSAGE_BUFFER_SIZE];
+static uint8_t payload_buf[CONFIG_MQTT_PAYLOAD_BUFFER_SIZE];
 
 /* The mqtt client struct */
 static struct mqtt_client client;
@@ -33,20 +38,47 @@ static bool connected;
 /* File descriptor */
 static struct pollfd fds;
 
+#if defined(CONFIG_MQTT_LIB_TLS)
+static int certificates_provision(void)
+{
+	int err = 0;
+
+	printk("Provisioning certificates\n");
+
+#if defined(CONFIG_BSD_LIBRARY) && defined(CONFIG_MODEM_KEY_MGMT)
+
+	err = modem_key_mgmt_write(CONFIG_MQTT_TLS_SEC_TAG,
+				   MODEM_KEY_MGMT_CRED_TYPE_CA_CHAIN,
+				   CA_CERTIFICATE,
+				   strlen(CA_CERTIFICATE));
+	if (err) {
+		printk("Failed to provision CA certificate, err %d\n", err);
+		return err;
+	}
+
+#elif defined(CONFIG_BOARD_QEMU_X86) && defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
+
+	err = tls_credential_add(CONFIG_MQTT_TLS_SEC_TAG,
+				 TLS_CREDENTIAL_CA_CERTIFICATE,
+				 CA_CERTIFICATE,
+				 sizeof(CA_CERTIFICATE));
+	if (err) {
+		printk("Failed to register CA certificate, error: %d\n", err);
+		return err;
+	}
+
+#endif
+
+	return err;
+}
+#endif /* defined(CONFIG_MQTT_LIB_TLS) */
+
 #if defined(CONFIG_BSD_LIBRARY)
 
 /**@brief Recoverable BSD library error. */
 void bsd_recoverable_error_handler(uint32_t err)
 {
 	printk("bsdlib recoverable error: %u\n", (unsigned int)err);
-}
-
-/**@brief Irrecoverable BSD library error. */
-void bsd_irrecoverable_error_handler(uint32_t err)
-{
-	printk("bsdlib irrecoverable error: %u\n", (unsigned int)err);
-
-	__ASSERT_NO_MSG(false);
 }
 
 #endif /* defined(CONFIG_BSD_LIBRARY) */
@@ -82,7 +114,7 @@ void lwm2m_carrier_event_handler(const lwm2m_carrier_event_t *event)
 
 /**@brief Function to print strings without null-termination
  */
-static void data_print(u8_t *prefix, u8_t *data, size_t len)
+static void data_print(uint8_t *prefix, uint8_t *data, size_t len)
 {
 	char buf[len + 1];
 
@@ -94,7 +126,7 @@ static void data_print(u8_t *prefix, u8_t *data, size_t len)
 /**@brief Function to publish data on the configured topic
  */
 static int data_publish(struct mqtt_client *c, enum mqtt_qos qos,
-	u8_t *data, size_t len)
+	uint8_t *data, size_t len)
 {
 	struct mqtt_publish_param param;
 
@@ -143,8 +175,8 @@ static int subscribe(void)
  */
 static int publish_get_payload(struct mqtt_client *c, size_t length)
 {
-	u8_t *buf = payload_buf;
-	u8_t *end = buf + length;
+	uint8_t *buf = payload_buf;
+	uint8_t *end = buf + length;
 
 	if (length > sizeof(payload_buf)) {
 		return -EMSGSIZE;
@@ -162,7 +194,8 @@ static int publish_get_payload(struct mqtt_client *c, size_t length)
 
 			printk("mqtt_read_publish_payload: EAGAIN\n");
 
-			err = poll(&fds, 1, K_SECONDS(CONFIG_MQTT_KEEPALIVE));
+			err = poll(&fds, 1,
+				   CONFIG_MQTT_KEEPALIVE * MSEC_PER_SEC);
 			if (err > 0 && (fds.revents & POLLIN) == POLLIN) {
 				continue;
 			} else {
@@ -196,6 +229,11 @@ void mqtt_evt_handler(struct mqtt_client *const c,
 
 		connected = true;
 		printk("[%s:%d] MQTT client connected!\n", __func__, __LINE__);
+
+#if defined(CONFIG_MQTT_LIB_TLS)
+		printk("Connected with TLS\n");
+#endif
+
 		subscribe();
 		break;
 
@@ -249,6 +287,13 @@ void mqtt_evt_handler(struct mqtt_client *const c,
 				evt->param.suback.message_id);
 		break;
 
+	case MQTT_EVT_PINGRESP:
+		if (evt->result != 0) {
+			printk("MQTT PINGRESP error %d\n", evt->result);
+			break;
+		}
+		break;
+
 	default:
 		printk("[%s:%d] default: %d\n", __func__, __LINE__,
 				evt->type);
@@ -259,7 +304,7 @@ void mqtt_evt_handler(struct mqtt_client *const c,
 /**@brief Resolves the configured hostname and
  * initializes the MQTT broker structure
  */
-static void broker_init(void)
+static int broker_init(void)
 {
 	int err;
 	struct addrinfo *result;
@@ -272,12 +317,10 @@ static void broker_init(void)
 	err = getaddrinfo(CONFIG_MQTT_BROKER_HOSTNAME, NULL, &hints, &result);
 	if (err) {
 		printk("ERROR: getaddrinfo failed %d\n", err);
-
-		return;
+		return -ECHILD;
 	}
 
 	addr = result;
-	err = -ENOENT;
 
 	/* Look for address of the broker. */
 	while (addr != NULL) {
@@ -296,7 +339,6 @@ static void broker_init(void)
 			inet_ntop(AF_INET, &broker4->sin_addr.s_addr,
 				  ipv4_addr, sizeof(ipv4_addr));
 			printk("IPv4 Address found %s\n", ipv4_addr);
-
 			break;
 		} else {
 			printk("ai_addrlen = %u should be %u or %u\n",
@@ -311,20 +353,28 @@ static void broker_init(void)
 
 	/* Free the address. */
 	freeaddrinfo(result);
+
+	return err;
 }
 
 /**@brief Initialize the MQTT client structure
  */
-static void client_init(struct mqtt_client *client)
+static int client_init(struct mqtt_client *client)
 {
+	int err;
+
 	mqtt_client_init(client);
 
-	broker_init();
+	err = broker_init();
+	if (err) {
+		printk("Failed to initialize broker connection\n");
+		return err;
+	}
 
 	/* MQTT client configuration */
 	client->broker = &broker;
 	client->evt_cb = mqtt_evt_handler;
-	client->client_id.utf8 = (u8_t *)CONFIG_MQTT_CLIENT_ID;
+	client->client_id.utf8 = (uint8_t *)CONFIG_MQTT_CLIENT_ID;
 	client->client_id.size = strlen(CONFIG_MQTT_CLIENT_ID);
 	client->password = NULL;
 	client->user_name = NULL;
@@ -337,7 +387,34 @@ static void client_init(struct mqtt_client *client)
 	client->tx_buf_size = sizeof(tx_buffer);
 
 	/* MQTT transport configuration */
+#if defined(CONFIG_MQTT_LIB_TLS)
+	struct mqtt_sec_config *tls_cfg = &(client->transport).tls.config;
+	static sec_tag_t sec_tag_list[] = { CONFIG_MQTT_TLS_SEC_TAG };
+
+	client->transport.type = MQTT_TRANSPORT_SECURE;
+
+	tls_cfg->peer_verify = CONFIG_MQTT_TLS_PEER_VERIFY;
+	tls_cfg->cipher_count = 0;
+	tls_cfg->cipher_list = NULL;
+	tls_cfg->sec_tag_count = ARRAY_SIZE(sec_tag_list);
+	tls_cfg->sec_tag_list = sec_tag_list;
+	tls_cfg->hostname = CONFIG_MQTT_BROKER_HOSTNAME;
+
+#if defined(CONFIG_BSD_LIBRARY)
+	tls_cfg->session_cache = IS_ENABLED(CONFIG_MQTT_TLS_SESSION_CACHING) ?
+					    TLS_SESSION_CACHE_ENABLED :
+					    TLS_SESSION_CACHE_DISABLED;
+#else
+	/* TLS session caching is not supported by the Zephyr network stack */
+	tls_cfg->session_cache = TLS_SESSION_CACHE_DISABLED;
+
+#endif
+
+#else
 	client->transport.type = MQTT_TRANSPORT_NON_SECURE;
+#endif
+
+	return err;
 }
 
 /**@brief Initialize the file descriptor structure used by poll.
@@ -395,9 +472,21 @@ void main(void)
 
 	printk("The MQTT simple sample started\n");
 
+#if defined(CONFIG_MQTT_LIB_TLS)
+	err = certificates_provision();
+	if (err != 0) {
+		printk("Failed to provision certificates\n");
+		return;
+	}
+#endif /* defined(CONFIG_MQTT_LIB_TLS) */
+
 	modem_configure();
 
-	client_init(&client);
+	err = client_init(&client);
+	if (err != 0) {
+		printk("ERROR: client_init %d\n", err);
+		return;
+	}
 
 	err = mqtt_connect(&client);
 	if (err != 0) {
@@ -412,14 +501,14 @@ void main(void)
 	}
 
 	while (1) {
-		err = poll(&fds, 1, K_SECONDS(CONFIG_MQTT_KEEPALIVE));
+		err = poll(&fds, 1, mqtt_keepalive_time_left(&client));
 		if (err < 0) {
 			printk("ERROR: poll %d\n", errno);
 			break;
 		}
 
 		err = mqtt_live(&client);
-		if (err != 0) {
+		if ((err != 0) && (err != -EAGAIN)) {
 			printk("ERROR: mqtt_live %d\n", err);
 			break;
 		}

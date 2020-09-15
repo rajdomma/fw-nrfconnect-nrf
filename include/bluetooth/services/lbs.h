@@ -20,16 +20,16 @@ extern "C" {
 #include <zephyr/types.h>
 
 /** @brief LBS Service UUID. */
-#define LBS_UUID_SERVICE 0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15, \
-			 0xDE, 0xEF, 0x12, 0x12, 0x23, 0x15, 0x00, 0x00
+#define LBS_UUID_SERVICE \
+	BT_UUID_128_ENCODE(0x00001523, 0x1212, 0xefde, 0x1523, 0x785feabcd123)
 
 /** @brief Button Characteristic UUID. */
-#define LBS_UUID_BUTTON_CHAR 0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15, \
-			     0xDE, 0xEF, 0x12, 0x12, 0x24, 0x15, 0x00, 0x00
+#define LBS_UUID_BUTTON_CHAR \
+	BT_UUID_128_ENCODE(0x00001524, 0x1212, 0xefde, 0x1523, 0x785feabcd123)
 
 /** @brief LED Characteristic UUID. */
-#define LBS_UUID_LED_CHAR    0x23, 0xD1, 0xBC, 0xEA, 0x5F, 0x78, 0x23, 0x15, \
-			     0xDE, 0xEF, 0x12, 0x12, 0x25, 0x15, 0x00, 0x00
+#define LBS_UUID_LED_CHAR \
+	BT_UUID_128_ENCODE(0x00001525, 0x1212, 0xefde, 0x1523, 0x785feabcd123)
 
 /** @brief Callback type for when an LED state change is received. */
 typedef void (*led_cb_t)(const bool led_state);
@@ -47,9 +47,10 @@ struct bt_gatt_lbs_cb {
 
 /** @brief Initialize the LBS Service.
  *
- * This function registers a BLE service with two characteristics: Button
- * and LED. Enable notifications for the Button Characteristic to let a
- * connected BLE unit know when the button state changes.
+ * This function registers a GATT service with two characteristics: Button
+ * and LED.
+ * Send notifications for the Button Characteristic to let connected peers know
+ * when the button state changes.
  * Write to the LED Characteristic to change the state of the LED on the
  * board.
  *
@@ -66,7 +67,7 @@ int bt_gatt_lbs_init(struct bt_gatt_lbs_cb *callbacks);
 /** @brief Send the button state.
  *
  * This function sends a binary state, typically the state of a
- * button, to the connected BLE unit.
+ * button, to all connected peers.
  *
  * @param[in] button_state The state of the button.
  *

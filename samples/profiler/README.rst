@@ -23,13 +23,11 @@ Event with data (``data event``):
 Requirements
 ************
 
-* One of the following development boards:
+The sample supports the following development kits:
 
-  * nRF9160 DK board (PCA10090)
-  * nRF52840 Development Kit board (PCA10056)
-  * nRF52 Development Kit board (PCA10040)
-  * nRF51 Development Kit board (PCA10028)
-
+.. include:: /includes/boardname_tables/sample_boardnames.txt
+   :start-after: set9_start
+   :end-before: set9_end
 
 Building and running
 ********************
@@ -41,7 +39,8 @@ Testing
 =======
 
 After programming the sample to your board, you can test it by running the script ``real_time_plot.py`` (located under :file:`scripts/profiler`).
-As arguments, pass the csv and json file names that should be used to store the data (for example, run ``real_time_plot.py data.csv data.json``).
+As an argument, pass the name that should be used to store the data.
+For example, run ``real_time_plot.py test_name`` to generate a :file:`test_name.csv` and a :file:`test_name.json` file.
 
 The script opens a GUI window that displays events as points on timelines.
 See the Profiler documentation for more information.

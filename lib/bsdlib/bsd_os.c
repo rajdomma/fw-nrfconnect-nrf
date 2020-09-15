@@ -141,7 +141,7 @@ static bool sleeping_thread_add(struct sleeping_thread *thread)
 	bool allow_to_sleep = false;
 	struct thread_monitor_entry *entry;
 
-	u32_t key = irq_lock();
+	uint32_t key = irq_lock();
 
 	entry = thread_monitor_entry_get(k_current_get());
 
@@ -160,7 +160,7 @@ static void sleeping_thread_remove(struct sleeping_thread *thread)
 {
 	struct thread_monitor_entry *entry;
 
-	u32_t key = irq_lock();
+	uint32_t key = irq_lock();
 
 	sys_slist_find_and_remove(&sleeping_threads, &thread->node);
 
@@ -173,7 +173,7 @@ static void sleeping_thread_remove(struct sleeping_thread *thread)
 int32_t bsd_os_timedwait(uint32_t context, int32_t *timeout)
 {
 	struct sleeping_thread thread;
-	s64_t start, remaining;
+	int64_t start, remaining;
 
 	start = k_uptime_get();
 
@@ -183,7 +183,7 @@ int32_t bsd_os_timedwait(uint32_t context, int32_t *timeout)
 	}
 
 	if (*timeout < 0) {
-		*timeout = K_FOREVER;
+		*timeout = SYS_FOREVER_MS;
 	}
 
 	sleeping_thread_init(&thread);
@@ -192,16 +192,16 @@ int32_t bsd_os_timedwait(uint32_t context, int32_t *timeout)
 		return 0;
 	}
 
-	(void)k_sem_take(&thread.sem, *timeout);
+	(void)k_sem_take(&thread.sem, SYS_TIMEOUT_MS(*timeout));
 
 	sleeping_thread_remove(&thread);
 
-	if (*timeout == K_FOREVER) {
+	if (*timeout == SYS_FOREVER_MS) {
 		return 0;
 	}
 
 	/* Calculate how much time is left until timeout. */
-	remaining = *timeout - (k_uptime_get() - start);
+	remaining = *timeout - k_uptime_delta(&start);
 	*timeout = remaining > 0 ? remaining : 0;
 
 	if (*timeout == 0) {
@@ -246,6 +246,9 @@ void bsd_os_errno_set(int err_code)
 		break;
 	case NRF_EAGAIN:
 		errno = EAGAIN;
+		break;
+	case NRF_EDOM:
+		errno = EDOM;
 		break;
 	case NRF_EPROTOTYPE:
 		errno = EPROTOTYPE;
@@ -297,6 +300,9 @@ void bsd_os_errno_set(int err_code)
 		break;
 	case NRF_EINPROGRESS:
 		errno = EINPROGRESS;
+		break;
+	case NRF_EALREADY:
+		errno = EALREADY;
 		break;
 	case NRF_ECANCELED:
 		errno = ECANCELED;
@@ -404,16 +410,16 @@ void read_task_create(void)
 void trace_uart_init(void)
 {
 #ifdef CONFIG_BSD_LIBRARY_TRACE_ENABLED
-	/* UART pins are defined in "nrf9160_pca10090.dts". */
+	/* UART pins are defined in "nrf9160dk_nrf9160.dts". */
 	const nrfx_uarte_config_t config = {
 		/* Use UARTE1 pins routed on VCOM2. */
-		.pseltxd = DT_NORDIC_NRF_UARTE_UART_1_TX_PIN,
-		.pselrxd = DT_NORDIC_NRF_UARTE_UART_1_RX_PIN,
+		.pseltxd = DT_PROP(DT_NODELABEL(uart1), tx_pin),
+		.pselrxd = DT_PROP(DT_NODELABEL(uart1), rx_pin),
 		.pselcts = NRF_UARTE_PSEL_DISCONNECTED,
 		.pselrts = NRF_UARTE_PSEL_DISCONNECTED,
 
-		.hwfc = NRF_UARTE_HWFC_DISABLED,
-		.parity = NRF_UARTE_PARITY_EXCLUDED,
+		.hal_cfg.hwfc = NRF_UARTE_HWFC_DISABLED,
+		.hal_cfg.parity = NRF_UARTE_PARITY_EXCLUDED,
 		.baudrate = NRF_UARTE_BAUDRATE_1000000,
 
 		/* IRQ handler not used. Blocking mode.*/
@@ -447,11 +453,11 @@ int32_t bsd_os_trace_put(const uint8_t * const data, uint32_t len)
 	 * Split RAM buffer into smaller chunks
 	 * to be transferred using DMA.
 	 */
-	u32_t remaining_bytes = len;
+	uint32_t remaining_bytes = len;
 
 	while (remaining_bytes) {
-		u8_t transfer_len = MIN(remaining_bytes, UINT8_MAX);
-		u32_t idx = len - remaining_bytes;
+		uint8_t transfer_len = MIN(remaining_bytes, UINT8_MAX);
+		uint32_t idx = len - remaining_bytes;
 
 		nrfx_uarte_tx(&uarte_inst, &data[idx], transfer_len);
 		remaining_bytes -= transfer_len;

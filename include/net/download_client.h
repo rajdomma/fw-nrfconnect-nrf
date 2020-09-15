@@ -22,6 +22,7 @@
 
 #include <zephyr.h>
 #include <zephyr/types.h>
+#include <net/coap.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,25 +32,39 @@ extern "C" {
  * @brief Download client event IDs.
  */
 enum download_client_evt_id {
-	/** Event contains a fragment. */
+	/**
+	 * Event contains a fragment.
+	 * The application may return any non-zero value to stop the download.
+	 */
 	DOWNLOAD_CLIENT_EVT_FRAGMENT,
-	/** Download complete. */
-	DOWNLOAD_CLIENT_EVT_DONE,
 	/**
 	 * An error has occurred during download and
 	 * the connection to the server has been lost.
-	 * - ENOTCONN: error reading from socket
-	 * - ECONNRESET: peer closed connection
-	 * - EBADMSG: HTTP response header not
-	 *            as expected
 	 *
-	 * In both cases, the application should
-	 * disconnect (@ref download_client_disconnect)
-	 * and connect (@ref download_client_connect)
-	 * before reattempting the download, to
-	 * reinitialize the network socket.
+	 * Error reason may be one of the following:
+	 * - ECONNRESET: socket error, peer closed connection
+	 * - EHOSTDOWN: host went down during download
+	 * - EBADMSG: HTTP response header not as expected
+	 * - E2BIG: HTTP response header could not fit in buffer
+	 *
+	 * In case of errors on the socket during send() or recv() (ECONNRESET),
+	 * returning zero from the callback will let the library attempt
+	 * to reconnect to the server and download the last fragment again.
+	 * Otherwise, the application may return any non-zero value
+	 * to stop the download.
+	 *
+	 * In case the download is stopped, the application should manually
+	 * disconnect (@ref download_client_disconnect) to clean up the
+	 * network socket as necessary before re-attempting the download.
 	 */
 	DOWNLOAD_CLIENT_EVT_ERROR,
+	/** Download complete. */
+	DOWNLOAD_CLIENT_EVT_DONE,
+};
+
+struct download_fragment {
+	const void *buf;
+	size_t len;
 };
 
 /**
@@ -58,14 +73,12 @@ enum download_client_evt_id {
 struct download_client_evt {
 	/** Event ID. */
 	enum download_client_evt_id id;
+
 	union {
 		/** Error cause. */
 		int error;
 		/** Fragment data. */
-		struct fragment {
-			const void *buf;
-			size_t len;
-		} fragment;
+		struct download_fragment fragment;
 	};
 };
 
@@ -73,12 +86,19 @@ struct download_client_evt {
  * @brief Download client configuration options.
  */
 struct download_client_cfg {
-	/** TLS security tag. If -1, TLS is disabled. */
+	/** TLS security tag.
+	 *  Pass -1 to disable TLS.
+	 */
 	int sec_tag;
 	/** Access point name identifying a packet data network.
-	 * Must be a null-terminated string or NULL to use the default APN.
+	 *  Pass a null-terminated string with the APN
+	 *  or NULL to use the default APN.
 	 */
 	const char *apn;
+	/** Maximum fragment size to download. 0 indicates that Kconfigured
+	 *  values shall be used.
+	 */
+	size_t frag_size_override;
 };
 
 /**
@@ -101,10 +121,10 @@ typedef int (*download_client_callback_t)(
  * @brief Download client instance.
  */
 struct download_client {
-	/** HTTP socket. */
+	/** Socket descriptor. */
 	int fd;
-	/** HTTP response buffer. */
-	char buf[CONFIG_DOWNLOAD_CLIENT_MAX_RESPONSE_SIZE];
+	/** Response buffer. */
+	char buf[CONFIG_DOWNLOAD_CLIENT_BUF_SIZE];
 	/** Buffer offset. */
 	size_t offset;
 
@@ -113,19 +133,29 @@ struct download_client {
 	/** Download progress, number of bytes downloaded. */
 	size_t progress;
 
-	/** Whether the HTTP header for
-	 * the current fragment has been processed.
-	 */
-	bool has_header;
-	/** The server has closed the connection. */
-	bool connection_close;
-
 	/** Server hosting the file, null-terminated. */
 	const char *host;
 	/** File name, null-terminated. */
 	const char *file;
 	/** Configuration options. */
 	struct download_client_cfg config;
+
+	/** Protocol for current download. */
+	int proto;
+
+	struct  {
+		/** Whether the HTTP header for
+		 * the current fragment has been processed.
+		 */
+		bool has_header;
+		/** The server has closed the connection. */
+		bool connection_close;
+	} http;
+
+	struct {
+		/** CoAP block context. */
+		struct coap_block_context block_ctx;
+	} coap;
 
 	/** Internal thread ID. */
 	k_tid_t tid;
@@ -154,7 +184,9 @@ int download_client_init(struct download_client *client,
  * @brief Establish a connection to the server.
  *
  * @param[in] client	Client instance.
- * @param[in] host	HTTP server to connect to, null-terminated.
+ * @param[in] host	Name of the host to connect to, null-terminated.
+ *			Can include scheme and port number, defaults to
+ *			HTTP or HTTPS if no scheme is provided.
  * @param[in] config	Configuration options.
  *
  * @retval int Zero on success, a negative error code otherwise.
@@ -165,8 +197,9 @@ int download_client_connect(struct download_client *client, const char *host,
 /**
  * @brief Download a file.
  *
- * The download is carried out in fragments of @c
- * CONFIG_DOWNLOAD_CLIENT_MAX_FRAGMENT_SIZE bytes,
+ * The download is carried out in fragments of up to
+ * @c CONFIG_DOWNLOAD_CLIENT_HTTP_FRAG_SIZE bytes for HTTP, or
+ * @c CONFIG_DOWNLOAD_CLIENT_COAP_BLOCK_SIZE bytes for CoAP,
  * which are delivered to the application
  * via @ref DOWNLOAD_CLIENT_EVT_FRAGMENT events.
  *

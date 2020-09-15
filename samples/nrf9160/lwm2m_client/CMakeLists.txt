@@ -6,8 +6,7 @@
 
 cmake_minimum_required(VERSION 3.13.1)
 
-include(../../../cmake/boilerplate.cmake NO_POLICY_SCOPE)
-include($ENV{ZEPHYR_BASE}/cmake/app/boilerplate.cmake NO_POLICY_SCOPE)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(lwm2m_client)
 zephyr_compile_definitions(PROJECT_NAME=${PROJECT_NAME})
 

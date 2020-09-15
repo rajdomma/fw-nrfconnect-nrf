@@ -5,8 +5,6 @@
 #
 
 
-title: PAW3212 optical motion sensor
-
 description: >
     This is a representation of the PAW3212 optical motion sensor
 
@@ -16,5 +14,5 @@ include: spi-device.yaml
 
 properties:
     irq-gpios:
-      type: compound
+      type: phandle-array
       required: true

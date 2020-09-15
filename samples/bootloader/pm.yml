@@ -1,5 +1,5 @@
 #include <autoconf.h>
-#include <generated_dts_board_unfixed.h>
+#include <devicetree_legacy_unfixed.h>
 
 b0_image:
   size: CONFIG_PM_PARTITION_SIZE_B0_IMAGE
@@ -13,11 +13,14 @@ s0_pad:
   share_size: mcuboot_pad
   placement:
     after: b0
-    align: {start: DT_FLASH_ERASE_BLOCK_SIZE}
+    align: {start: CONFIG_FPROTECT_BLOCK_SIZE}
+
+spm_app:
+  span: [spm, app]
 
 s0_image:
   # S0 spans over the image booted by B0
-  span: {one_of: [mcuboot, spm, app]}
+  span: {one_of: [mcuboot, spm_app]}
 
 s0:
   # Phony container to allow hex overriding
@@ -31,16 +34,21 @@ s1_pad:
     align: {start: DT_FLASH_ERASE_BLOCK_SIZE}
 
 s1_image:
-  # This partition will only exist if mcuboot exists.
-  share_size: mcuboot
-  placement: {after: s1_pad}
+  share_size: {one_of: [mcuboot, s0_image]}
+  placement:
+    after: [s1_pad, s0]
+    align: {end: CONFIG_FPROTECT_BLOCK_SIZE}
 
 s1:
   # Partition which contains the whole S1 partition.
   span: [s1_pad, s1_image]
 
 provision:
-  size: 0x1000
+  size: CONFIG_PM_PARTITION_SIZE_PROVISION
+#if defined(CONFIG_SOC_NRF9160) || defined(CONFIG_SOC_NRF5340_CPUAPP)
+  region: otp
+#else
   placement:
     after: b0_image
-    align: {start: 0x1000}
+    align: {start: DT_FLASH_ERASE_BLOCK_SIZE}
+#endif

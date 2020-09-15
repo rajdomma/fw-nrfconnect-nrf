@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
  */
 
-#include <gpio.h>
+#include <drivers/gpio.h>
 #include <init.h>
-#include <sensor.h>
+#include <drivers/sensor.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <logging/log.h>
@@ -55,13 +55,13 @@ static void double_to_sensor_value(double val,
  */
 static void sensor_sim_gpio_callback(struct device *dev,
 				struct gpio_callback *cb,
-				u32_t pins)
+				uint32_t pins)
 {
 	ARG_UNUSED(pins);
 	struct sensor_sim_data *drv_data =
 		CONTAINER_OF(cb, struct sensor_sim_data, gpio_cb);
 
-	gpio_pin_disable_callback(dev, drv_data->gpio_pin);
+	gpio_pin_interrupt_configure(dev, drv_data->gpio_pin, GPIO_INT_DISABLE);
 	k_sem_give(&drv_data->gpio_sem);
 }
 #endif /* CONFIG_SENSOR_SIM_TRIGGER_USE_BUTTON */
@@ -74,11 +74,11 @@ static void sensor_sim_gpio_callback(struct device *dev,
 static void sensor_sim_thread(int dev_ptr)
 {
 	struct device *dev = INT_TO_POINTER(dev_ptr);
-	struct sensor_sim_data *drv_data = dev->driver_data;
+	struct sensor_sim_data *drv_data = dev->data;
 
 	while (true) {
 		if (IS_ENABLED(CONFIG_SENSOR_SIM_TRIGGER_USE_TIMER)) {
-			k_sleep(CONFIG_SENSOR_SIM_TRIGGER_TIMER_MSEC);
+			k_sleep(K_MSEC(CONFIG_SENSOR_SIM_TRIGGER_TIMER_MSEC));
 		} else if (IS_ENABLED(CONFIG_SENSOR_SIM_TRIGGER_USE_BUTTON)) {
 			k_sem_take(&drv_data->gpio_sem, K_FOREVER);
 		}
@@ -88,7 +88,8 @@ static void sensor_sim_thread(int dev_ptr)
 		}
 
 #if defined(CONFIG_SENSOR_SIM_TRIGGER_USE_BUTTON)
-		gpio_pin_enable_callback(drv_data->gpio, drv_data->gpio_pin);
+		gpio_pin_interrupt_configure(drv_data->gpio, drv_data->gpio_pin,
+					     GPIO_INT_EDGE_FALLING);
 #endif
 	}
 }
@@ -100,7 +101,7 @@ static void sensor_sim_thread(int dev_ptr)
  */
 static int sensor_sim_init_thread(struct device *dev)
 {
-	struct sensor_sim_data *drv_data = dev->driver_data;
+	struct sensor_sim_data *drv_data = dev->data;
 
 #if defined(CONFIG_SENSOR_SIM_TRIGGER_USE_BUTTON)
 	drv_data->gpio = device_get_binding(drv_data->gpio_port);
@@ -111,9 +112,7 @@ static int sensor_sim_init_thread(struct device *dev)
 	}
 
 	gpio_pin_configure(drv_data->gpio, drv_data->gpio_pin,
-			   GPIO_DIR_IN | GPIO_INT | GPIO_INT_EDGE |
-			   GPIO_INT_ACTIVE_LOW | GPIO_INT_DEBOUNCE |
-			   GPIO_PUD_PULL_UP);
+			   GPIO_INPUT | GPIO_PULL_UP | GPIO_INT_DEBOUNCE);
 
 	gpio_init_callback(&drv_data->gpio_cb,
 			   sensor_sim_gpio_callback,
@@ -133,7 +132,7 @@ static int sensor_sim_init_thread(struct device *dev)
 			(k_thread_entry_t)sensor_sim_thread, dev,
 			NULL, NULL,
 			K_PRIO_COOP(CONFIG_SENSOR_SIM_THREAD_PRIORITY),
-			0, 0);
+			0, K_NO_WAIT);
 
 	return 0;
 }
@@ -143,10 +142,11 @@ static int sensor_sim_trigger_set(struct device *dev,
 			   sensor_trigger_handler_t handler)
 {
 	int ret = 0;
-	struct sensor_sim_data *drv_data = dev->driver_data;
+	struct sensor_sim_data *drv_data = dev->data;
 
 #if defined(CONFIG_SENSOR_SIM_TRIGGER_USE_BUTTON)
-	gpio_pin_disable_callback(drv_data->gpio, drv_data->gpio_pin);
+	gpio_pin_interrupt_configure(drv_data->gpio, drv_data->gpio_pin,
+				     GPIO_INT_DISABLE);
 #endif
 
 	switch (trig->type) {
@@ -161,7 +161,8 @@ static int sensor_sim_trigger_set(struct device *dev,
 	}
 
 #if defined(CONFIG_SENSOR_SIM_TRIGGER_USE_BUTTON)
-	gpio_pin_enable_callback(drv_data->gpio, drv_data->gpio_pin);
+	gpio_pin_interrupt_configure(drv_data->gpio, drv_data->gpio_pin,
+				     GPIO_INT_EDGE_FALLING);
 #endif
 	return ret;
 }
@@ -177,7 +178,7 @@ static int sensor_sim_init(struct device *dev)
 {
 #if defined(CONFIG_SENSOR_SIM_TRIGGER)
 #if defined(CONFIG_SENSOR_SIM_TRIGGER_USE_BUTTON)
-	struct sensor_sim_data *drv_data = dev->driver_data;
+	struct sensor_sim_data *drv_data = dev->data;
 
 	drv_data->gpio_port = SW0_GPIO_CONTROLLER;
 	drv_data->gpio_pin = SW0_GPIO_PIN;
@@ -209,7 +210,7 @@ static double generate_pseudo_random(void)
  */
 static double generate_sine(double offset, double amplitude)
 {
-	u32_t time = k_uptime_get_32();
+	uint32_t time = k_uptime_get_32();
 
 	return offset + amplitude * sin(time % 65535);
 }
@@ -242,10 +243,10 @@ static int generate_accel_data(enum sensor_channel chan)
 		case SENSOR_CHAN_ACCEL_XYZ:
 			accel_samples[0] = generate_sine(base_accel_samples[0],
 								max_variation);
-			k_sleep(1);
+			k_sleep(K_MSEC(1));
 			accel_samples[1] = generate_sine(base_accel_samples[1],
 								max_variation);
-			k_sleep(1);
+			k_sleep(K_MSEC(1));
 			accel_samples[2] = generate_sine(base_accel_samples[2],
 								max_variation);
 			break;

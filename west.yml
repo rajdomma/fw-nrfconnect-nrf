@@ -1,78 +1,104 @@
-# The west manifest file for the nRF Connect SDK (NCS).
+# The west manifest file (west.yml) for the nRF Connect SDK (NCS).
 #
-# The per-installation west configuration file specifies the location of this
-# manifest file. The "path" option in the [manifest] section of .west/config
-# defines the folder that contains west.yml. The path is relative to the folder
-# that contains .west.
+# The per-workspace west configuration file, ncs/.west/config,
+# specifies the location of this manifest file like this:
 #
-# You can create your own manifest files and put them in any
-# repository you want, to create your own custom NCS installation.
-# For example, you could create a manifest file in your own
-# out-of-tree application directory, which would pull the nrf repository
-# in as an ordinary project.
+#     [manifest]
+#     path = nrf
 #
-# You can pass your manifest repositories to west init when creating a
-# new NCS installation. See the west documentation for more
-# information.
+# See the west documentation for more information:
+#
+# https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/zephyr/guides/west/index.html
 
 manifest:
-  defaults:
-    remote: ncs
+  # This west.yml requires west 0.7 or later, because the "import"
+  # feature used below was introduced then.
+  version: 0.7
 
+  # "remotes" is a list of locations where git repositories are cloned
+  # and fetched from.
   remotes:
-      # nRF Connect SDK base URL.
+    # nRF Connect SDK GitHub organization.
+    # NCS repositories are hosted here.
     - name: ncs
-      url-base: https://github.com/NordicPlayground
+      url-base: https://github.com/nrfconnect
+    # Third-party repository sources:
     - name: zephyrproject
       url-base: https://github.com/zephyrproject-rtos
     - name: throwtheswitch
       url-base: https://github.com/ThrowTheSwitch
     - name: armmbed
       url-base: https://github.com/ARMmbed
-    - name: civetweb
-      url-base: https://github.com/civetweb
 
-  # The list of external projects for the nRF Connect SDK.
-  #
+  # If not otherwise specified, the projects below should be obtained
+  # from the ncs remote.
+  defaults:
+    remote: ncs
+
+  # "projects" is a list of git repositories which make up the NCS
+  # source code.
   projects:
+
+    # The Zephyr RTOS fork in the NCS, along with the subset of its
+    # modules which NCS imports directly.
+    #
+    # https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/zephyr/introduction/index.html
+    # https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/zephyr/guides/modules.html
     - name: zephyr
-      repo-path: fw-nrfconnect-zephyr
-      west-commands: scripts/west-commands.yml
-      revision: d6e67554cfeb28df5525e53c073f61a00836f283
-    - name: nffs
-      revision: bc62a2fa9d98ddb5d633c932ea199bc68e10f194
-      path: modules/fs/nffs
-      remote: zephyrproject
-    - name: segger
-      revision: 6fcf61606d6012d2c44129edc033f59331e268bc
-      path: modules/debug/segger
-      remote: zephyrproject
-    - name: mbedtls
-      repo-path: fw-nrfconnect-mbedtls
-      path: modules/crypto/mbedtls
-      revision: c3be1b52f5e56aaba6039c423478cfaf62a91622
+      repo-path: sdk-zephyr
+      revision: 332206bcad13edffb14f0de684b62b795b871903
+      import:
+        # In addition to the zephyr repository itself, NCS also
+        # imports the contents of zephyr/west.yml at the above
+        # revision. Only the projects explicitly named in the
+        # following whitelist are imported.
+        #
+        # Note that the zephyr west extensions (like 'build', 'flash',
+        # 'debug', etc.) are automatically provided by this import, so
+        # there's no need to add a redundant west-commands: key for
+        # the zephyr project.
+        #
+        # Please keep this list sorted alphabetically.
+        name-whitelist:
+          - canopennode
+          - ci-tools
+          - cmsis
+          - civetweb
+          - edtt
+          - fatfs
+          - hal_nordic
+          - hal_st
+          - libmetal
+          - littlefs
+          - loramac-node
+          - lvgl
+          - mbedtls
+          - mipi-sys-t
+          - net-tools
+          - nrf_hw_models
+          - open-amp
+          - openthread
+          - segger
+          - tinycbor
+          - tinycrypt
+
+    # NCS repositories.
+    #
+    # Some of these are also Zephyr modules which have NCS-specific
+    # changes.
     - name: mcuboot
-      repo-path: fw-nrfconnect-mcuboot
-      revision: 1d7b0f2b990744295a03b29de91828e24b3c9c89
+      repo-path: sdk-mcuboot
+      revision: 50eec26a462d8cbc171dbbdca623979294a6227b
+      path: bootloader/mcuboot
     - name: mcumgr
-      repo-path: fw-nrfconnect-mcumgr
-      revision: f663988d35da559a37f263d369842dbce309d1fa
+      repo-path: sdk-mcumgr
+      revision: cfe5eb98a9493017448846fd1a44a9340bd0a22f
       path: modules/lib/mcumgr
-    - name: tinycbor
-      repo-path: fw-nrfconnect-tinycbor
-      path: modules/lib/tinycbor
-      revision: 543ecb7c8662580ef803d59ceda7bd3b8a84a11b
-    - name: ci-tools
-      path: tools/ci-tools
-      remote: zephyrproject
-      revision: e01f3bce2a94847253369efb9a081f5c0e9ec882
-    - name: net-tools
-      path: tools/net-tools
-      remote: zephyrproject
-      revision: 30b7efa827b04d2e47840716b0372737fe7d6c92
     - name: nrfxlib
+      repo-path: sdk-nrfxlib
       path: nrfxlib
-      revision: 9f9bd638a5a7cce77ee47e195e6458822ffc5e75
+      revision: 117d39dd5bfb05fa3c0f0a7251716bfcd56d60a5
+    # Other third-party repositories.
     - name: cmock
       path: test/cmock
       revision: c243b9a7a7b3c471023193992b46cf1bd1910450
@@ -84,51 +110,13 @@ manifest:
     - name: mbedtls-nrf
       path: mbedtls
       repo-path: mbedtls
-      revision: mbedtls-2.16.3
+      revision: mbedtls-2.16.6
       remote: armmbed
 
-    # The projects below are included for completeness, but they are
-    # not known to work properly with the NCS multi-image / partition
-    # manager patchset. Please report any issues.
-    #
-    # https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/scripts/partition_manager/partition_manager.html
-    - name: civetweb
-      path: modules/lib/civetweb
-      remote: civetweb
-      revision: 99129c5efc907ea613c4b73ccff07581feb58a7a
-    - name: fatfs
-      path: modules/fs/fatfs
-      remote: zephyrproject
-      revision: df96914dd989907f3a5de4cb95b116c2f305820d
-    - name: hal_nordic
-      path: modules/hal/nordic
-      remote: zephyrproject
-      revision: 1b14177ff2176a1d17f3dd5e7e217f44337255db
-    - name: hal_st
-      path: modules/hal/st
-      remote: zephyrproject
-      revision: 0ec40aed8087f26bd9ac1b70fb5a6c326a6451aa
-    - name: libmetal
-      path: modules/hal/libmetal
-      remote: zephyrproject
-      revision: 45e630d6152824f807d3f919958605c4626cbdff
-    - name: lvgl
-      path: modules/lib/gui/lvgl
-      remote: zephyrproject
-      revision: d4708d0a432e95f51bdc712591ba5295b751140c
-    - name: open-amp
-      path: modules/lib/open-amp
-      remote: zephyrproject
-      revision: 9b591b289e1f37339bd038b5a1f0e6c8ad39c63a
-    - name: openthread
-      path: modules/lib/openthread
-      remote: zephyrproject
-      revision: 3c32244f098f8daf8741efe0a2ad839b67f8567f
-    - name: littlefs
-      path: modules/fs/littlefs
-      remote: zephyrproject
-      revision: fe9572dd5a9fcf93a249daa4233012692bd2881d
-
+  # West-related configuration for the nrf repository.
   self:
+    # This repository should be cloned to ncs/nrf.
     path: nrf
+    # This line configures west extensions which are currently only
+    # for internal use by NCS maintainers.
     west-commands: scripts/west-commands.yml

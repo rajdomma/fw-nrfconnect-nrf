@@ -17,13 +17,24 @@ import os
 from subprocess import CalledProcessError, check_output, DEVNULL
 
 if "ZEPHYR_BASE" not in os.environ:
-    print("$ZEPHYR_BASE environment variable undefined.")
     sys.exit("$ZEPHYR_BASE environment variable undefined.")
 ZEPHYR_BASE = os.path.abspath(os.environ["ZEPHYR_BASE"])
 
 if "ZEPHYR_BUILD" not in os.environ:
     sys.exit("$ZEPHYR_BUILD environment variable undefined.")
 ZEPHYR_BUILD = os.path.abspath(os.environ["ZEPHYR_BUILD"])
+
+if "ZEPHYR_OUTPUT" not in os.environ:
+    sys.exit("$ZEPHYR_OUTPUT environment variable undefined.")
+ZEPHYR_OUTPUT = os.path.abspath(os.environ["ZEPHYR_OUTPUT"])
+
+if "ZEPHYR_RST_SRC" not in os.environ:
+    sys.exit("$ZEPHYR_RST_SRC environment variable undefined.")
+ZEPHYR_RST_SRC = os.path.abspath(os.environ["ZEPHYR_RST_SRC"])
+
+if "KCONFIG_OUTPUT" not in os.environ:
+    sys.exit("$KCONFIG_OUTPUT environment variable undefined.")
+KCONFIG_OUTPUT = os.path.abspath(os.environ["KCONFIG_OUTPUT"])
 
 NRF_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -61,13 +72,15 @@ except CalledProcessError as e:
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    'sphinx.ext.intersphinx',
     'breathe', 'sphinx.ext.todo',
     'sphinx.ext.extlinks',
     'sphinx.ext.autodoc',
     'zephyr.application',
     'zephyr.html_redirects',
     'only.eager_only',
-    'zephyr.link-roles'
+    'zephyr.link-roles',
+    'sphinx_tabs.tabs'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -86,7 +99,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Zephyr Project'
-copyright = u'2015-2019 Zephyr Project members and individual contributors.'
+copyright = u'2015-2020 Zephyr Project members and individual contributors.'
 author = u'The Zephyr Project'
 
 # The following code tries to extract the information by reading the Makefile,
@@ -108,7 +121,7 @@ try:
             extraversion = val
         if version_major and version_minor and patchlevel and extraversion:
             break
-except:
+except Exception:
     pass
 finally:
     if version_major and version_minor and patchlevel and extraversion is not None :
@@ -183,7 +196,7 @@ html_theme = "zephyr"
 html_theme_path = ['{}/doc/themes'.format(NRF_BASE)]
 html_favicon = '{}/doc/static/images/favicon.ico'.format(NRF_BASE)
 
-if tags.has('release'):
+if tags.has('release'):  # pylint: disable=undefined-variable
     is_release = True
     docs_title = 'Docs / %s' %(version)
 else:
@@ -257,6 +270,14 @@ html_show_copyright = True
 # If true, license is shown in the HTML footer. Default is True.
 html_show_license = True
 
+# Link the Kconfig docs with Intersphinx so that references to Kconfig symbols
+# (via :option:`CONFIG_FOO`) turn into links
+intersphinx_mapping = {
+    'kconfig': (os.path.relpath(KCONFIG_OUTPUT, ZEPHYR_OUTPUT),
+                os.path.join(os.path.relpath(KCONFIG_OUTPUT, ZEPHYR_RST_SRC),
+                             'objects.inv'))
+}
+
 # If true, an OpenSearch description file will be output, and all pages will
 # contain a <link> tag referring to it.  The value of this option must be the
 # base URL from which the finished HTML is served.
@@ -320,6 +341,7 @@ linkcheck_workers = 10
 linkcheck_anchors = False
 
 def setup(app):
-   app.add_stylesheet("zephyr-custom.css")
-   app.add_stylesheet("css/zephyr.css")
-   app.add_stylesheet("css/common.css")
+    app.add_stylesheet("zephyr-custom.css")
+    app.add_stylesheet("css/zephyr.css")
+    app.add_stylesheet("css/common.css")
+    app.add_js_file("js/ncs.js")

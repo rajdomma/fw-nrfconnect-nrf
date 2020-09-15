@@ -16,8 +16,12 @@ config APPLICATION_VERSION
 	int "Application version"
 	default 1
 
+config USE_HTTPS
+	bool
+	prompt "Use HTTPS for download"
+
 endmenu
 
 menu "Zephyr Kernel"
-source "$ZEPHYR_BASE/Kconfig.zephyr"
+source "Kconfig.zephyr"
 endmenu

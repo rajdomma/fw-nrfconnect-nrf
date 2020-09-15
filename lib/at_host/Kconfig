@@ -51,6 +51,9 @@ choice
 		-  CR Termination
 		-  LF Termination
 		-  CR+LF Termination
+
+		WARNING! Some AT commands (like AT+CMGS) use CR internally.
+		Selecting CR Termination will render those commands unavailable.
 	config NULL_TERMINATION
 		bool "NULL Termination"
 	config CR_TERMINATION

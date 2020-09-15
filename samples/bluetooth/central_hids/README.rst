@@ -24,10 +24,11 @@ Requirements
 
 * One of the following development boards:
 
-  * nRF9160 DK board (PCA10090)
-  * nRF52840 Development Kit board (PCA10056)
-  * nRF52 Development Kit board (PCA10040)
-  * nRF51 Development Kit board (PCA10028)
+  * |nRF9160DK|
+  * |nRF5340DK|
+  * |nRF52840DK|
+  * |nRF52DK|
+  * |nRF51DK|
 
 * HIDS device to connect with (for example, another board running the :ref:`peripheral_hids_mouse` or :ref:`peripheral_hids_keyboard` sample, or a Bluetooth Low Energy dongle and nRF Connect for Desktop)
 
@@ -98,6 +99,7 @@ Testing with another board
    If Button 1 was pressed::
 
       Caps lock send (val: 0x2)
+      Caps lock sent
 
    If Button 3 was pressed::
 
@@ -148,7 +150,7 @@ Testing with nRF Connect for Desktop
       Subscribe in report id: 1
       Subscribe in boot keyboard report
 
-#. Explore the first record inside **Human Interface Device** (the one with six values).
+#. Explore the first report inside **Human Interface Device** (the one with eight values).
    Change any of the values and note that the board logs the change.
 #. Press Button 2 on the board and observe that the **Protocol Mode** value changes from ``01`` to ``00``.
 #. Press Button 1 and Button 3 one after another and observe that the **Boot Keyboard Output Report** value toggles between ``00`` and ``02``.
@@ -165,10 +167,10 @@ This sample uses the following |NCS| libraries:
 
 In addition, it uses the following Zephyr libraries:
 
-* ``include/misc/byteorder.h``
+* ``include/sys/byteorder.h``
 * ``include/zephyr/types.h``
 * ``lib/libc/minimal/include/errno.h``
-* ``include/misc/printk.h``
+* ``include/sys/printk.h``
 * :ref:`zephyr:bluetooth_api`:
 
   * ``include/bluetooth/bluetooth.h``

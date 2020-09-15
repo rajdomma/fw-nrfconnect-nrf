@@ -3,14 +3,14 @@
 nRF9160: LwM2M carrier
 ######################
 
-The LwM2M carrier sample demonstrates how to run the **LwM2M carrier** library (liblwm2m_carrier) in an application in order to connect to the operator LwM2M network.
+The LwM2M carrier sample demonstrates how to run the :ref:`liblwm2m_carrier_readme` library in an application in order to connect to the operator LwM2M network.
 
 Requirements
 ************
 
 * The following development board:
 
-  * nRF9160 DK board (PCA10090)
+  * |nRF9160DK|
 
 * .. include:: /includes/spm.txt
 
@@ -38,8 +38,11 @@ Troubleshooting
 
 Bootstrapping can take several minutes.
 This is expected and dependent on the availability of the LTE link.
-During boostrap, several ``LWM2M_CARRIER_EVENT_CONNECT`` and ``LWM2M_CARRIER_EVENT_DISCONNECT`` events are printed.
+During bootstrap, several :c:macro:`LWM2M_CARRIER_EVENT_CONNECTED` and :c:macro:`LWM2M_CARRIER_EVENT_DISCONNECTED` events are printed.
 This is expected and is part of the bootstrapping procedure.
+For more information, see the :ref:`lwm2m_events` and :ref:`lwm2m_msc` sections in the LwM2M carrier library documentation.
+
+To completely restart and trigger a new bootstrap, the device must be erased and re-programmed, as mentioned in :ref:`lwm2m_app_int`.
 
 
 Dependencies
@@ -48,15 +51,14 @@ Dependencies
 This sample uses the following libraries:
 
 From |NCS|
-  * ``drivers/lte_link_control``
-  * :ref:`at_cmd_readme`
-  * :ref:`lib_download_client`
+  * |NCS| modules abstracted via the LwM2M carrier OS abstraction layer (:file:`lwm2m_os.h`)
+
+  .. include:: /../../lib/bin/lwm2m_carrier/lwm2m_carrier.rst
+    :start-after: lwm2m_osal_mod_list_start
+    :end-before: lwm2m_osal_mod_list_end
 
 From nrfxlib
   * :ref:`nrfxlib:bsdlib`
-
-From Zephyr
-  * :ref:`MQTT <zephyr:mqtt_socket_interface>`
 
 In addition, it uses the following samples:
 

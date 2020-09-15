@@ -8,7 +8,7 @@ The Enhanced ShockBurst Transmitter/Receiver sample shows the basic steps that a
 Overview
 ********
 
-The sample consists of two applications, one Transmitter and one Receiver, that use the :ref:`nrf_esb_README` library.
+The sample consists of two applications, one Transmitter and one Receiver, that use the :ref:`esb_README` library.
 After programming each application on an nRF5 development board, you can test that packets that are sent by the board that runs the Transmitter application are picked up by the board that runs the Receiver application.
 Successful communication is indicated by LED changes, which should be in sync on both boards.
 
@@ -29,13 +29,13 @@ If packets are successfully received from the Transmitter, the LED pattern will 
 Requirements
 ************
 
-* Two of the following development boards:
+The sample supports the following development kits:
 
-  * nRF52840 Development Kit board (PCA10056)
-  * nRF52 Development Kit board (PCA10040)
-  * nRF51 Development Kit board (PCA10028)
+.. include:: /includes/boardname_tables/sample_boardnames.txt
+   :start-after: set2_start
+   :end-before: set2_end
 
-  You can mix different boards.
+You can use any two of the development kits listed above and mix different development kits.
 
 User interface
 ***************
@@ -69,13 +69,13 @@ Dependencies
 
 This sample uses the following |NCS| libraries:
 
-* :ref:`nrf_esb_readme`
+* :ref:`esb_readme`
 
 In addition, it uses the following Zephyr libraries:
 
 * ``include/zephyr/types.h``
-* :ref:`zephyr:logger`
-* :ref:`zephyr:kernel`:
+* :ref:`zephyr:logging_api`
+* :ref:`zephyr:kernel_api`:
 
   * ``include/kernel.h``
   * ``include/irq.h``

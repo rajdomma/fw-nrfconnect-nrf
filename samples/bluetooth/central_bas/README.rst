@@ -20,10 +20,11 @@ Requirements
 
 * One of the following development boards:
 
-  * nRF9160 DK board (PCA10090)
-  * nRF52840 Development Kit board (PCA10056)
-  * nRF52 Development Kit board (PCA10040)
-  * nRF51 Development Kit board (PCA10028)
+  * |nRF9160DK|
+  * |nRF5340DK|
+  * |nRF52840DK|
+  * |nRF52DK|
+  * |nRF51DK|
 
 * A device running a BAS Server to connect with (for example, another board running the :ref:`peripheral_hids_mouse` or :ref:`peripheral_hids_keyboard` sample, or a Bluetooth Low Energy dongle and nRF Connect for Desktop)
 
@@ -137,7 +138,7 @@ In addition, it uses the following Zephyr libraries:
 
 * ``include/zephyr/types.h``
 * ``boards/arm/nrf*/board.h``
-* :ref:`zephyr:kernel`:
+* :ref:`zephyr:kernel_api`:
 
   * ``include/kernel.h``
 

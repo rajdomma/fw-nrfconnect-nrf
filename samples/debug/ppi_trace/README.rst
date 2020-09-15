@@ -11,12 +11,12 @@ Overview
 
 The sample initializes trace pins to observe the following hardware events:
 
-* RTC Compare event (``NRF_RTC_EVENT_COMPARE_1``)
+* RTC Compare event (``NRF_RTC_EVENT_COMPARE_0``)
 * RTC Tick event (``NRF_RTC_EVENT_TICK``)
 * Low frequency clock (LFCLK) Started event (``NRF_CLOCK_EVENT_LFCLKSTARTED``)
 * Radio activity during *Bluetooth* advertising (available only for Bluetooth capable devices)
 
-The sample sets up a :ref:`zephyr:counter_interface` to generate an ``NRF_RTC_EVENT_COMPARE_1`` event every 50 ms.
+The sample sets up a :ref:`zephyr:counter_api` to generate an ``NRF_RTC_EVENT_COMPARE_0`` event every 50 ms.
 Initially, RTC runs on RC low frequency (lower precision) as clock source.
 When the crystal is ready, it switches seamlessly to crystal (precise) as clock source.
 When the low-frequency crystal is ready, an ``NRF_CLOCK_EVENT_LFCLKSTARTED`` event is generated.
@@ -27,9 +27,9 @@ Requirements
 
 * One of the following development boards:
 
-  * nRF9160 DK board (PCA10090)
-  * nRF52840 Development Kit board (PCA10056)
-  * nRF52 Development Kit board (PCA10040)
+  * |nRF9160DK|
+  * |nRF52840DK|
+  * |nRF52DK|
 * Logic analyzer
 
 
@@ -67,8 +67,8 @@ This sample uses the following |NCS| subsystems:
 
 In addition, it uses the following Zephyr libraries:
 
-* :ref:`zephyr:counter_interface`
-* :ref:`zephyr:device_drivers`
-* :ref:`zephyr:logger`
+* :ref:`zephyr:counter_api`
+* :ref:`zephyr:device_model_api`
+* :ref:`zephyr:logging_api`
 * ``ext/hal/nordic/nrfx/hal/nrf_rtc.h``
 * ``ext/hal/nordic/nrfx/hal/nrf_clock.h``

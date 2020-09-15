@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2018 Nordic Semiconductor
+# Copyright (c) 2018 - 2020 Nordic Semiconductor
 #
 # SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
 #
@@ -11,7 +11,7 @@ rsource "bluetooth/Kconfig"
 
 rsource "dfu/Kconfig"
 
-rsource "enhanced_shockburst/Kconfig"
+rsource "esb/Kconfig"
 
 rsource "net/Kconfig"
 
@@ -23,8 +23,16 @@ rsource "profiler/Kconfig"
 
 rsource "spm/Kconfig"
 
-rsource "fw_metadata/Kconfig"
+rsource "fw_info/Kconfig"
 
 rsource "debug/Kconfig"
 
 rsource "shell/Kconfig"
+
+rsource "mpsl/Kconfig"
+
+rsource "partition_manager/Kconfig"
+
+rsource "nrf_rpc/Kconfig"
+
+rsource "zigbee/Kconfig"

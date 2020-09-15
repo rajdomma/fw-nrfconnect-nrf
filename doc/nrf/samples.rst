@@ -8,38 +8,64 @@ Those samples are a good starting point for understanding how to put together yo
 
 In addition, the |NCS| provides the following samples that showcase the use of a single feature or library:
 
+.. _ble_samples:
+
 .. toctree::
    :maxdepth: 1
-   :caption: Bluetooth samples:
+   :caption: Bluetooth samples
    :glob:
 
    ../../samples/bluetooth/*/README
+   ../../samples/bluetooth/mesh/*/README
 
-.. note::
-   |noBLE|
+.. _nfc_samples:
 
 .. toctree::
    :maxdepth: 1
-   :caption: NFC samples:
+   :caption: NFC samples
    :glob:
 
    ../../samples/nfc/*/README
 
+.. _nrf9160_samples:
+
 .. toctree::
    :maxdepth: 1
-   :caption: nRF9160 samples:
+   :caption: nRF9160 samples
    :glob:
 
    ../../samples/nrf9160/*/README
 
+.. _openthread_samples:
+
 .. toctree::
    :maxdepth: 1
-   :caption: Other samples:
+   :caption: Thread samples
+   :glob:
+
+   ../../samples/openthread/*/README
+
+.. _zigbee_samples:
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Zigbee samples
+   :glob:
+
+   ../../samples/zigbee/*/README
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Other samples
    :glob:
 
    ../../samples/*/README
    ../../samples/debug/*/README
+   ../../samples/nrf5340/empty_app_core/README
+   ../../samples/mpsl/*/README
+   ../../samples/peripheral/*/README
    ../../samples/sensor/*/README
    ../../samples/usb/*/README
+   ../../samples/nrf_rpc/*/README
 
 For more complex examples, see :ref:`applications`.

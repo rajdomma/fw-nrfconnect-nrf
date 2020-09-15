@@ -20,9 +20,9 @@ enum {
 	NUS_C_RX_WRITE_PENDING
 };
 
-static u8_t on_received(struct bt_conn *conn,
+static uint8_t on_received(struct bt_conn *conn,
 			struct bt_gatt_subscribe_params *params,
-			const void *data, u16_t length)
+			const void *data, uint16_t length)
 {
 	struct bt_gatt_nus_c *nus_c;
 
@@ -47,12 +47,12 @@ static u8_t on_received(struct bt_conn *conn,
 	return BT_GATT_ITER_CONTINUE;
 }
 
-static void on_sent(struct bt_conn *conn, u8_t err,
+static void on_sent(struct bt_conn *conn, uint8_t err,
 		    struct bt_gatt_write_params *params)
 {
 	struct bt_gatt_nus_c *nus_c;
 	const void *data;
-	u16_t length;
+	uint16_t length;
 
 	/* Retrieve NUS Client module context. */
 	nus_c = CONTAINER_OF(params, struct bt_gatt_nus_c, rx_write_params);
@@ -83,10 +83,14 @@ int bt_gatt_nus_c_init(struct bt_gatt_nus_c *nus_c,
 	return 0;
 }
 
-int bt_gatt_nus_c_send(struct bt_gatt_nus_c *nus_c, const u8_t *data,
-		       u16_t len)
+int bt_gatt_nus_c_send(struct bt_gatt_nus_c *nus_c, const uint8_t *data,
+		       uint16_t len)
 {
 	int err;
+
+	if (!nus_c->conn) {
+		return -ENOTCONN;
+	}
 
 	if (atomic_test_and_set_bit(&nus_c->state, NUS_C_RX_WRITE_PENDING)) {
 		return -EALREADY;
@@ -109,12 +113,12 @@ int bt_gatt_nus_c_send(struct bt_gatt_nus_c *nus_c, const u8_t *data,
 int bt_gatt_nus_c_handles_assign(struct bt_gatt_dm *dm,
 				 struct bt_gatt_nus_c *nus_c)
 {
-	const struct bt_gatt_attr *gatt_service_attr =
+	const struct bt_gatt_dm_attr *gatt_service_attr =
 			bt_gatt_dm_service_get(dm);
 	const struct bt_gatt_service_val *gatt_service =
 			bt_gatt_dm_attr_service_val(gatt_service_attr);
-	const struct bt_gatt_attr *gatt_chrc;
-	const struct bt_gatt_attr *gatt_desc;
+	const struct bt_gatt_dm_attr *gatt_chrc;
+	const struct bt_gatt_dm_attr *gatt_desc;
 
 	if (bt_uuid_cmp(gatt_service->uuid, BT_UUID_NUS_SERVICE)) {
 		return -ENOTSUP;
@@ -177,6 +181,8 @@ int bt_gatt_nus_c_tx_notif_enable(struct bt_gatt_nus_c *nus_c)
 	nus_c->tx_notif_params.value = BT_GATT_CCC_NOTIFY;
 	nus_c->tx_notif_params.value_handle = nus_c->handles.tx;
 	nus_c->tx_notif_params.ccc_handle = nus_c->handles.tx_ccc;
+	atomic_set_bit(nus_c->tx_notif_params.flags,
+		       BT_GATT_SUBSCRIBE_FLAG_VOLATILE);
 
 	err = bt_gatt_subscribe(nus_c->conn, &nus_c->tx_notif_params);
 	if (err) {

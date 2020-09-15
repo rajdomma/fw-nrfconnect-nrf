@@ -101,9 +101,9 @@ The following code example shows a header file for the event type ``sample_event
 		struct event_header header;
 
 		/* Custom data fields. */
-		s8_t value1;
-		s16_t value2;
-		s32_t value3;
+		int8_t value1;
+		int16_t value2;
+		int32_t value3;
 	};
 
 	EVENT_TYPE_DECLARE(sample_event);
@@ -191,9 +191,9 @@ The following code example shows how to register an event listener with an event
 			/* Accessing event data. */
 			struct sample_event *event = cast_sample_event(eh);
 
-			s8_t v1 = event->value1;
-			s16_t v2 = event->value2;
-			s32_t v3 = event->value3;
+			int8_t v1 = event->value1;
+			int16_t v2 = event->value2;
+			int32_t v3 = event->value3;
 
 			/* Actions when received given event type. */
 			foo(v1, v2, v3);
@@ -227,8 +227,6 @@ The following code examples shows a profiling function for the event type ``samp
 	{
 		struct sample_event *event = cast_sample_event(eh);
 
-		/* ARG_UNUSED to suppress warning when profiling is disabled. */
-		ARG_UNUSED(event);
 		profiler_log_encode_u32(buf, event->value1);
 		profiler_log_encode_u32(buf, event->value2);
 		profiler_log_encode_u32(buf, event->value3);
@@ -257,7 +255,7 @@ The following code example shows how to define the event profiling information s
 Shell integration
 *****************
 
-The Event Manager is integrated with Zephyr's :ref:`zephyr:shell_label` module.
+The Event Manager is integrated with Zephyr's :ref:`zephyr:shell_api` module.
 When the shell is turned on, an additional subcommand set (:command:`event_manager`) is added.
 
 This subcommand set contains the following commands:

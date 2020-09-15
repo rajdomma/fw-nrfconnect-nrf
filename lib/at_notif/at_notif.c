@@ -8,9 +8,9 @@
 #include <zephyr.h>
 #include <stdio.h>
 #include <init.h>
-#include <at_cmd.h>
-#include <at_notif.h>
-#include <misc/slist.h>
+#include <modem/at_cmd.h>
+#include <modem/at_notif.h>
+#include <sys/slist.h>
 
 LOG_MODULE_REGISTER(at_notif, CONFIG_AT_NOTIF_LOG_LEVEL);
 
@@ -26,9 +26,10 @@ struct notif_handler {
 static sys_slist_t handler_list;
 
 
-/**@brief Find notification handler.
+/**
+ * @brief Find the handler from the notification list.
  *
- * @note  Returns next and writes previous to prev.
+ * @return The node or NULL if not found and its previous node in @p prev_out.
  */
 static struct notif_handler *find_node(struct notif_handler **prev_out,
 	void *ctx, at_notif_handler_t handler)
@@ -45,16 +46,16 @@ static struct notif_handler *find_node(struct notif_handler **prev_out,
 	return NULL;
 }
 
-/**@brief Append notification handler. */
+/**@brief Add the handler in the notification list if not already present. */
 static int append_notif_handler(void *ctx, at_notif_handler_t handler)
 {
 	struct notif_handler *to_ins;
 
 	k_mutex_lock(&list_mtx, K_FOREVER);
 
-	/* Check if it exists */
+	/* Check if handler is already registered. */
 	if (find_node(&to_ins, ctx, handler) != NULL) {
-		LOG_DBG("Already in the list.\n");
+		LOG_DBG("Handler already registered. Nothing to do");
 		k_mutex_unlock(&list_mtx);
 		return 0;
 	}
@@ -69,29 +70,28 @@ static int append_notif_handler(void *ctx, at_notif_handler_t handler)
 	to_ins->ctx     = ctx;
 	to_ins->handler = handler;
 
-	/* Append. */
+	/* Insert handler in the list. */
 	sys_slist_append(&handler_list, &to_ins->node);
-
 	k_mutex_unlock(&list_mtx);
 	return 0;
 }
 
-/**@brief Remove notification handler. */
+/**@brief Remove the handler from the notification list if registered. */
 static int remove_notif_handler(void *ctx, at_notif_handler_t handler)
 {
 	struct notif_handler *curr, *prev = NULL;
 
 	k_mutex_lock(&list_mtx, K_FOREVER);
 
-	/* Check if it exists */
+	/* Check if the handler is registered before removing it. */
 	curr = find_node(&prev, ctx, handler);
 	if (curr == NULL) {
-		LOG_DBG("Not found.\n");
+		LOG_WRN("Handler not registered. Nothing to do");
 		k_mutex_unlock(&list_mtx);
-		return -ENXIO;
+		return 0;
 	}
 
-	/* Remove */
+	/* Remove the handler from the list. */
 	sys_slist_remove(&handler_list, &prev->node, &curr->node);
 	k_free(curr);
 
@@ -99,19 +99,21 @@ static int remove_notif_handler(void *ctx, at_notif_handler_t handler)
 	return 0;
 }
 
-/**@brief Dispatcher for notifications. */
-static void notif_dispatch(char *response)
+/**@brief AT command notifications handler. */
+static void notif_dispatch(const char *response)
 {
 	struct notif_handler *curr, *tmp;
 
 	k_mutex_lock(&list_mtx, K_FOREVER);
 
-	LOG_DBG("Dispatching events.\n");
+	/* Dispatch notifications to all registered handlers */
+	LOG_DBG("Dispatching events:");
 	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&handler_list, curr, tmp, node) {
-		LOG_DBG("ctx=0x%08X, handler=0x%08X", (u32_t)curr->ctx,
-			(u32_t)curr->handler);
+		LOG_DBG(" - ctx=0x%08X, handler=0x%08X", (uint32_t)curr->ctx,
+			(uint32_t)curr->handler);
 		curr->handler(curr->ctx, response);
 	}
+	LOG_DBG("Done");
 
 	k_mutex_unlock(&list_mtx);
 }
@@ -119,6 +121,15 @@ static void notif_dispatch(char *response)
 static int module_init(struct device *dev)
 {
 	ARG_UNUSED(dev);
+
+	static bool initialized;
+
+	if (initialized) {
+		LOG_WRN("Already initialized. Nothing to do");
+		return 0;
+	}
+
+	initialized = true;
 
 	LOG_DBG("Initialization");
 	sys_slist_init(&handler_list);
@@ -134,8 +145,8 @@ int at_notif_init(void)
 int at_notif_register_handler(void *context, at_notif_handler_t handler)
 {
 	if (handler == NULL) {
-		LOG_DBG("context=0x%08X, handler=0x%08X", (u32_t)context,
-			(u32_t)handler);
+		LOG_ERR("Invalid handler (context=0x%08X, handler=0x%08X)",
+			(uint32_t)context, (uint32_t)handler);
 		return -EINVAL;
 	}
 	return append_notif_handler(context, handler);
@@ -144,8 +155,8 @@ int at_notif_register_handler(void *context, at_notif_handler_t handler)
 int at_notif_deregister_handler(void *context, at_notif_handler_t handler)
 {
 	if (handler == NULL) {
-		LOG_DBG("context=0x%08X, handler=0x%08X", (u32_t)context,
-			(u32_t)handler);
+		LOG_ERR("Invalid handler (context=0x%08X, handler=0x%08X)",
+			(uint32_t)context, (uint32_t)handler);
 		return -EINVAL;
 	}
 	return remove_notif_handler(context, handler);

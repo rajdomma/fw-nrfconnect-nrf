@@ -22,7 +22,7 @@
 
 #include <stddef.h>
 #include <zephyr/types.h>
-#include <fw_metadata.h>
+#include <fw_info.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,7 +50,7 @@ void spm_request_system_reboot(void);
  * @retval 0        If successful.
  * @retval -EINVAL  If @c len is invalid. Currently, @c len must be 144.
  */
-int spm_request_random_number(u8_t *output, size_t len, size_t *olen);
+int spm_request_random_number(uint8_t *output, size_t len, size_t *olen);
 
 
 /** Request a read operation to be executed from Secure Firmware.
@@ -64,18 +64,32 @@ int spm_request_random_number(u8_t *output, size_t len, size_t *olen);
  * @retval -EINVAL  If destination is NULL, or if len is <= 0.
  * @retval -EPERM   If source is outside of allowed ranges.
  */
-int spm_request_read(void *destination, u32_t addr, size_t len);
+int spm_request_read(void *destination, uint32_t addr, size_t len);
 
-/** Search for the firmware_info structure in firmware image located at address.
+/** Search for the fw_info structure in firmware image located at address.
  *
- * @param[in]   firmware_address Address where firmware image is stored.
- * @param[out]  info		 Pointer to where found info is stored.
+ * @param[in]   fw_address  Address where firmware image is stored.
+ * @param[out]  info        Pointer to where found info is stored.
  *
  * @retval 0        If successful.
  * @retval -EINVAL  If info is NULL.
  * @retval -EFAULT  If no info is found.
  */
-int spm_firmware_info(u32_t fw_address, struct fw_firmware_info *info);
+int spm_firmware_info(uint32_t fw_address, struct fw_info *info);
+
+/** Prevalidate a B1 update
+ *
+ * This is performed by the B0 bootloader.
+ *
+ * @param[in]  dst_addr  Target location for the upgrade. This will typically
+ *                       be the start address of either S0 or S1.
+ * @param[in]  src_addr  Current location of the upgrade.
+ *
+ * @retval 1         If the upgrade is valid.
+ * @retval 0         If the upgrade is invalid.
+ * @retval -ENOTSUP  If the functionality is unavailable.
+ */
+int spm_prevalidate_b1_upgrade(uint32_t dst_addr, uint32_t src_addr);
 
 #ifdef __cplusplus
 }

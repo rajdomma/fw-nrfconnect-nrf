@@ -21,14 +21,16 @@ The downloaded image must be signed for use by MCUboot with imgtool.
 Requirements
 ************
 
-* The following development board:
+The sample supports the following development kit:
 
-  * nRF9160 DK board (PCA10090)
+.. include:: /includes/boardname_tables/sample_boardnames.txt
+   :start-after: set5_start
+   :end-before: set5_end
 
-* A signed firmware image that is available for download from an HTTP server.
-  This image is automatically generated when building the application.
+The sample also requires a signed firmware image that is available for download from an HTTP server.
+This image is automatically generated when building the application.
 
-* .. include:: /includes/spm.txt
+.. include:: /includes/spm.txt
 
 
 Building and running
@@ -38,7 +40,7 @@ Building and running
 
 .. include:: /includes/build_and_run.txt
 
-The sample is built as a non-secure firmware image for the nrf9160_pca10090ns board.
+The sample is built as a non-secure firmware image for the nrf9160dk_nrf9160ns build target.
 Because of this, it automatically includes the :ref:`secure_partition_manager`.
 The sample also uses MCUboot, which is automatically built and merged into the final HEX file when building the sample.
 
@@ -47,8 +49,8 @@ Specifying the image file
 =========================
 
 Before building the sample, you must specify where the image file will be located.
-If you do not want to host it yourself, you can upload it to nRF Cloud for testing purposes.
-See `Hosting your image on nRF Cloud`_ for instructions.
+If you do not want to host it yourself, you can upload it to a public S3 bucket on Amazon Web Services (AWS).
+See `Setting up an AWS S3 bucket`_ for instructions.
 
 To specify the location in |SES|:
 
@@ -56,24 +58,17 @@ To specify the location in |SES|:
 #. Navigate to **HTTP application update sample** and specify the **Download host name** (``CONFIG_DOWNLOAD_HOST``) and **The file to download** (``CONFIG_DOWNLOAD_FILE``).
 #. Click **Configure** to save the configuration.
 
+.. include:: /includes/aws_s3_bucket.txt
 
-Hosting your image on nRF Cloud
--------------------------------
+Hosting your image on an AWS S3 Server
+--------------------------------------
 
-1. Go to `firmware.nrfcloud.com`_ and sign in.
-   If you already have an nRF Cloud account, you can use the same credentials.
-   Otherwise, create an account and sign in.
-#. In the menu on the left-hand side, select **Firmware**.
-#. Click **Generate new** to create a URL for the firmware image.
+1. Go to `AWS S3 console`_ and sign in.
+#. Go to the bucket you have created.
+#. Click **Upload** and select the file ``app_update.bin`` (located in the ``zephyr`` subfolder of your build directory).
+#. Click the file you uploaded in the bucket and check the **Object URL** field to find the download URL for the file.
 
-   .. figure:: /images/http_upload_nrfcloud.png
-      :alt: Generate URL for firmware image in nRF Cloud
-
-   Generate URL for firmware image in nRF Cloud
-
-#. Click the **Copy URL** button to copy the address.
-
-When specifying the image file, use the ``s3.amazonaws.com`` part of the URL for the download host name.
+When specifying the image file, use the ``<bucket-name>.s3.<region>.amazonaws.com`` part of the URL for the download hostname.
 Make sure to not include the ``https``.
 Specify the rest of the URL as file name.
 
@@ -117,9 +112,9 @@ From nrfxlib
   * :ref:`nrfxlib:bsdlib`
 
 From Zephyr
-  * :ref:`zephyr:flash_interface`
-  * :ref:`zephyr:logger`
-  * :ref:`zephyr:gpio`
+  * :ref:`zephyr:flash_api`
+  * :ref:`zephyr:logging_api`
+  * :ref:`zephyr:gpio_api`
 
 From MCUboot
   * `MCUboot`_
